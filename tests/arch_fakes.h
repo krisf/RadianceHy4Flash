@@ -129,6 +129,7 @@ struct RadBuilder {
     bool           drafter_shared = false;
     int            drafter_pos = -1;
     int64_t        drafter_short = 0;     /* rad_drafter_short_block */
+    bool           drafter_no_context = false;  /* rad_drafter_no_context_pass */
     /* A tree drafter's parents buffer (rad_drafter_tree), 0 for a chain. */
     rad_buf        drafter_parents = 0;
     /* The routing counts' table (rad_route_table), 0 when the plugin declared none. */
@@ -503,6 +504,11 @@ extern "C" int rad_drafter_short_block(RadBuilder* b, int64_t block) {
                            : (block >= full || block - (full - b->drafter.depth) < 1))
         return RAD_E_INVAL;
     b->drafter_short = block;
+    return RAD_OK;
+}
+extern "C" int rad_drafter_no_context_pass(RadBuilder* b) {
+    if (!b || b->drafter.kind != RAD_DRAFT_BLOCK || b->drafter_parents) return RAD_E_STATE;
+    b->drafter_no_context = true;
     return RAD_OK;
 }
 extern "C" int rad_declare_encoder(RadBuilder* b, const RadEncoderDecl* d) {

@@ -2282,6 +2282,23 @@ int Builder::drafter_short_block(int64_t block) {
     return RAD_OK;
 }
 
+int Builder::drafter_no_context()
+{
+    if (prog_.drafter.kind != RAD_DRAFT_BLOCK) {
+        RAD_ERR("rad_drafter_no_context_pass: only a block drafter (RAD_DRAFT_BLOCK) has a "
+                "context pass to drop; none%s was declared",
+                prog_.drafter.kind == RAD_DRAFT_NONE ? "" : " of that kind");
+        return RAD_E_STATE;
+    }
+    if (prog_.drafter_tree) {
+        RAD_ERR("rad_drafter_no_context_pass: '%s' proposes a tree, whose context pass stages "
+                "the accepted path; it cannot be dropped", prog_.drafter_name.c_str());
+        return RAD_E_STATE;
+    }
+    prog_.drafter_no_context = true;
+    return RAD_OK;
+}
+
 /* A block drafter whose proposal is a tree (rad_builder.h). */
 int Builder::drafter_tree(rad_buf parents) {
     if (finished_) {
@@ -2916,6 +2933,8 @@ int rad_drafter_short_block(RadBuilder* b, int64_t block) {
     if (!b) return RAD_E_INVAL;
     return B(b)->drafter_short_block(block);
 }
+
+extern "C" int rad_drafter_no_context_pass(RadBuilder* b) { return B(b)->drafter_no_context(); }
 
 int rad_declare_encoder(RadBuilder* b, const RadEncoderDecl* d) {
     if (!b) return RAD_E_INVAL;

@@ -411,6 +411,9 @@ public:
      * for drafters that did not ask. */
     bool           drafter_shared_kv = false;
     int32_t        drafter_pos_offset = 0;
+    /* A block drafter that keeps no cache of its own (rad_drafter_no_context_pass): its context
+     * pass issues nothing, so the engine drops the pass instead of paying a barrier round for it. */
+    bool           drafter_no_context = false;
     /* A block drafter's shorter block (rad_drafter_short_block), 0 when it serves only its own. */
     int64_t        drafter_short_block = 0;
     /* A block drafter that proposes a tree (rad_drafter_tree): `drafter_parents` holds each

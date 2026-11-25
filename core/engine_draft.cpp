@@ -1109,10 +1109,12 @@ int Engine::issue_block_drafter(int step, StepOut& so) {
 
     /* The context pass runs even when nothing drafts: a mid-prompt sequence has hidden states the
      * drafter will need, and skipping would leave a permanent hole in its cache. A tree verify's
-     * context rows store only the accepted path, at its committed positions (ADV_CTXTREE). */
+     * context rows store only the accepted path, at its committed positions (ADV_CTXTREE). A
+     * drafter that keeps no cache of its own (rad_drafter_no_context_pass) owes none of this: its
+     * pass would issue nothing, so it is dropped rather than paid for a barrier round. */
     if (const RadBatch* cb = sched_.block_context(step)) {
         if (tree_) RAD_TRY(advance_all(ADV_CTXTREE, 0, false));
-        RAD_TRY(block_pass(cb, "context", step));
+        if (!no_context_) RAD_TRY(block_pass(cb, "context", step));
     }
     /* A snapshot carrying the drafter's window is saved now, with the step's context rows stored
      * and before the query pass and the step issued ahead (save_checkpoints). */

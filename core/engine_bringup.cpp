@@ -1724,6 +1724,7 @@ int Engine::declare() {
     /* A tree drafter (rad_drafter_tree): its parents plane rides with the proposal. */
     tree_         = drafter_.kind == RAD_DRAFT_BLOCK && drafter_.depth > 0 && p0.drafter_tree;
     tree_parents_ = tree_ ? p0.drafter_parents : 0;
+    no_context_   = drafter_.kind == RAD_DRAFT_BLOCK && !tree_ && p0.drafter_no_context;
     /* --draft-suffix on a block drafter: its block is the verify window it was declared for, so a
      * window widened past num-speculative-tokens would have run a different block. */
     if (cfg_.draft_suffix && drafter_.kind == RAD_DRAFT_BLOCK && cfg_.n_spec_head > 0 &&

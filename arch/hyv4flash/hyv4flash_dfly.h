@@ -957,6 +957,9 @@ struct Dfly {
         RAD_ARCH_TRY(rad_declare_drafter(b, &dd));
         /* D-06: the short block, which the core stages per step under load (--draft-short-from). */
         if (block_lo) RAD_ARCH_TRY(rad_drafter_short_block(b, block_lo));
+        /* DFly2 keeps no cache of its own, so its context pass issues nothing: drop it and the
+         * two barrier rounds it costs (C-07, kernels/dfly2.md §3.5 point 2). */
+        RAD_ARCH_TRY(rad_drafter_no_context_pass(b));
         return RAD_OK;
     }
 

@@ -2811,6 +2811,8 @@ TEST(dfly2_is_a_block_drafter_of_block_depth_plus_one_with_window_1) {
         /* D-06: a short block of 4 rows (3 proposals) where the block is longer */
         CHECK_EQ(d.b.drafter_short, depth >= 4 ? (int64_t)4 : (int64_t)0);
         CHECK(dd.proposal != 0);
+        /* C-07: no cache of its own, so the context pass is dropped */
+        CHECK(d.b.drafter_no_context);
         CHECK(!d.b.drafter_shared && d.b.drafter_parents == 0);
         /* No KV group of its own; the snapshots and the proposal persist. P-09: the selections
          * live in two layer-major planes named without the layer. With the drafter served,
