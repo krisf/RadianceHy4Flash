@@ -3953,6 +3953,92 @@ TEST(dfly2_takes_the_fused_reduction_add_norm_where_served_and_the_chain_otherwi
     }
 }
 
+/* D-03 (#89) review: the served drafter has five layers, so all but the last of its mode-1 twins
+ * write the NEXT layer's input norm into `xn` and that layer must issue none of its own
+ * (`in_norm_done`); only the last layer's twin carries the final norm. The one-layer model above
+ * cannot see that wiring -- its single twin is the last layer's -- so this declares a two-layer
+ * drafter on a trunk widened by a second sparse layer (each draft layer names a distinct cache
+ * layer) and runs the engine's query pass at two ranks. It fails if either half of the wiring is
+ * reverted: with no non-last-layer twin, layer 1 issues its own input norm; with no skip, it issues
+ * a second norm over the one the twin already wrote. */
+TEST(dfly2_a_non_last_layers_fused_norm_is_the_next_layers_and_that_layer_issues_none) {
+    MetaKV k = dfly_meta(2);
+    k.m.n_layers = 4;
+    k.set("layer_types", "deepseek_sparse_attention sliding_attention deepseek_sparse_attention "
+                         "deepseek_sparse_attention");
+    k.set("mlp_layer_types", "dense sparse sparse sparse");
+    k.set("dfly_target_kv_layers", "2 3");
+    k.set("dfly_target_index_layer", "2 3");
+    const int depth = 5;
+    DeclDfly d(depth, k, 2, 0);
+    REQUIRE_EQ(d.rc, RAD_OK);
+    const auto& df = d.df();
+    REQUIRE_EQ(df.lay.size(), (size_t)2);
+    const auto& L0 = df.lay[0];
+    const auto& L1 = df.lay[1];
+    /* Both layers resolve their twins. Layer 0's mode 1 takes layer 1's input norm and writes the
+     * shared `xn`; layer 1 is the last, so its mode 1 takes the final norm and writes `z`. */
+    REQUIRE(L0.op_ar_add != 0 && L1.op_ar_add != 0);
+    REQUIRE(L0.op_ar_next != 0 && L1.op_ar_next != 0);
+    CHECK_EQ(L0.ar_next_w, L1.attn_norm);
+    CHECK_EQ(L0.ar_next_out, df.xn);
+    CHECK_EQ(L1.ar_next_w, df.out_norm);
+    CHECK_EQ(L1.ar_next_out, df.z);
+    /* the chain a fused twin replaces is not declared beside it, and the final norm lives only in
+     * the last layer's twin */
+    CHECK_EQ(L0.op_post, 0);
+    CHECK_EQ(L0.op_add1, 0);
+    CHECK_EQ(df.op_final, 0);
+    CHECK_EQ(df.op_final_add, 0);
+
+    auto trunk = kit(d.b, std::vector<int>(2, depth + 1), {});
+    trunk->b.positions_h = trunk->pos.data();
+    auto ctxp = context_pass(d.b, *trunk);
+    Query qp(d.b, 2, depth + 1, depth);
+    auto ps = run_passes(d.b, hyv4flash::step, { trunk.get(), ctxp.get(), qp.k.get() }, 0, 2);
+    for (const auto& c : ps) {
+        if (!c->step_fail.empty()) fprintf(stderr, "%s\n", c->step_fail.c_str());
+        CHECK(c->step_fail.empty());
+    }
+    CHECK_LINT(d.b, ps[0].get(), ps[1].get(), ps[2].get());
+    const auto& is = ps[2]->issues;
+    const auto q = issued_ops(d.b, *ps[2]);
+    /* two layers, two twins each */
+    CHECK_EQ((int64_t)std::count(q.begin(), q.end(), std::string("ar_add_rmsnorm")), 4);
+    int64_t n0 = 0, n1 = 0, f0 = 0, f1 = 0;
+    for (const auto& x : is) {
+        n0 += x.op == L0.op_attn_norm || (L0.op_attn_norm_q && x.op == L0.op_attn_norm_q);
+        n1 += x.op == L1.op_attn_norm || (L1.op_attn_norm_q && x.op == L1.op_attn_norm_q);
+        f0 += x.op == L0.op_ffn_norm || (L0.op_ffn_norm_q && x.op == L0.op_ffn_norm_q);
+        f1 += x.op == L1.op_ffn_norm || (L1.op_ffn_norm_q && x.op == L1.op_ffn_norm_q);
+    }
+    /* layer 0 has no twin before it, so it issues its own input norm once; layer 1's was written by
+     * layer 0's mode 1, so it issues none. Each layer's feed-forward norm is its own. */
+    CHECK_EQ(n0, 1);
+    CHECK_EQ(n1, 0);
+    CHECK_EQ(f0, 1);
+    CHECK_EQ(f1, 1);
+    /* layer 0's mode-1 launch closes layer 0 before layer 1 starts, its output is the `xn` layer
+     * 1's q_a reads, and no norm is issued between the two */
+    size_t at_l0_next = SIZE_MAX, at_l1_tab = SIZE_MAX, at_l1_qa = SIZE_MAX, at_l1_ar0 = SIZE_MAX;
+    for (size_t i = 0; i < is.size(); ++i) {
+        const rad_op h = is[i].op;
+        if (h == L0.op_ar_next && at_l0_next == SIZE_MAX) at_l0_next = i;
+        if (h == L1.op_tab && at_l1_tab == SIZE_MAX) at_l1_tab = i;
+        if (h == L1.p_qa.op && at_l1_qa == SIZE_MAX) at_l1_qa = i;
+        if (h == L1.op_ar_add && at_l1_ar0 == SIZE_MAX) at_l1_ar0 = i;
+    }
+    REQUIRE(at_l0_next != SIZE_MAX && at_l1_tab != SIZE_MAX && at_l1_qa != SIZE_MAX &&
+            at_l1_ar0 != SIZE_MAX);
+    CHECK(at_l0_next < at_l1_tab && at_l1_tab < at_l1_qa && at_l1_qa < at_l1_ar0);
+    REQUIRE_EQ(is[at_l0_next].opd.size(), (size_t)4);
+    CHECK_EQ((rad_buf)is[at_l0_next].opd[3].handle, df.xn);
+    REQUIRE(!is[at_l1_qa].opd.empty());
+    CHECK_EQ((rad_buf)is[at_l1_qa].opd[0].handle, df.xn);
+    for (size_t i = at_l0_next + 1; i < at_l1_qa; ++i)
+        CHECK(is[i].op != L1.op_attn_norm && !(L1.op_attn_norm_q && is[i].op == L1.op_attn_norm_q));
+}
+
 /* D-06 (#91): DFly2 also serves a short block (rad_drafter_short_block) of 4 rows, the anchor and 3
  * masks, which the core stages under load (--draft-short-from): 3 proposals, two chain rounds fewer
  * at depth 5. The draft is causal (dfly_sel gives a row the keys up to its own position), so the
