@@ -542,6 +542,7 @@ int  r4d_rad_ar_twoshot_4rank_ti8  (const RadArgs*, RadStream);
 int  r4d_rad_ar_ln_init(const RadParam*, int, int rank, int world, void** out);
 int  r4d_rad_ar_ln_had_quant_i8(const RadArgs*, RadStream);
 int  r4d_rad_ar_rmsnorm_quant_fp8(const RadArgs*, RadStream);
+int  r4d_rad_ar_add_rmsnorm(const RadArgs*, RadStream);
 int  r4d_rad_ar_rmsnorm_had_quant_i8g(const RadArgs*, RadStream);
 int  r4d_rad_ar_hc_write(const RadArgs*, RadStream);
 /* ar_hc_write at four ranks, exact wire only, on an instance of the wide family keyed by its own
@@ -1063,6 +1064,7 @@ int r4d_shape_all_reduce           (const RadParam*, int, int operand, RadOpdDes
 int r4d_shape_all_gather           (const RadParam*, int, int operand, RadOpdDesc*);
 int r4d_shape_ar_ln_had_quant_i8   (const RadParam*, int, int operand, RadOpdDesc*);
 int r4d_shape_ar_rmsnorm_quant_fp8 (const RadParam*, int, int operand, RadOpdDesc*);
+int r4d_shape_ar_add_rmsnorm       (const RadParam*, int, int operand, RadOpdDesc*);
 int r4d_shape_ar_rmsnorm_had_quant_i8g (const RadParam*, int, int operand, RadOpdDesc*);
 int r4d_shape_ar_hc_write          (const RadParam*, int, int operand, RadOpdDesc*);
 int r4d_shape_ar_gather_hc_write   (const RadParam*, int, int operand, RadOpdDesc*);
@@ -1152,6 +1154,7 @@ int r4d_fuse_qsa_work_pool_tail (const RadParam*, int, uint64_t, int, RadFuseSte
 int r4d_fuse_qk_norm_rope_gate_kv_store_streamed(const RadParam*, int, uint64_t, int,
                                                  RadFuseStep*);
 int r4d_fuse_ar_rmsnorm_quant_fp8(const RadParam*, int, uint64_t, int, RadFuseStep*);
+int r4d_fuse_ar_add_rmsnorm(const RadParam*, int, uint64_t, int, RadFuseStep*);
 int r4d_fuse_ar_gather_hc_write  (const RadParam*, int, uint64_t, int, RadFuseStep*);
 int r4d_fuse_rmsnorm_ihc_junction (const RadParam*, int, uint64_t, int, RadFuseStep*);
 int r4d_fuse_ar_rmsnorm_ihc_junction(const RadParam*, int, uint64_t, int, RadFuseStep*);

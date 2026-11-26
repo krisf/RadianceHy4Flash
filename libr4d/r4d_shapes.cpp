@@ -1580,6 +1580,24 @@ extern "C" int r4d_shape_ar_rmsnorm_quant_fp8(const RadParam* p, int n_p, int op
     R4D_PICK(l);
 }
 
+/* The exact all-reduce with the two ops after it in one kernel: `a` is the message and inout, `x`
+ * the residual stream and inout, `w` the gain (f32 or bf16; the shim reads the operand's own), `y`
+ * the norm. Same four shapes in both modes: mode 0 norms `a` and adds into `x`, mode 1 adds into `x`
+ * and norms it. */
+extern "C" int r4d_shape_ar_add_rmsnorm(const RadParam* p, int n_p, int operand,
+                                        RadOpdDesc* out) {
+
+    const int64_t M = pi(p, n_p, "M");
+    const int64_t n = pi(p, n_p, "n");
+    const RadOpdDesc l[] = {
+        opd((uint32_t)RAD_BF16, M, n),
+        opd((uint32_t)RAD_BF16, M, n),
+        opd((uint32_t)RAD_F32,  n),
+        opd((uint32_t)RAD_BF16, M, n),
+    };
+    R4D_PICK(l);
+}
+
 extern "C" int r4d_shape_ar_rmsnorm_had_quant_i8g(const RadParam* p, int n_p, int operand,
                                                   RadOpdDesc* out) {
 

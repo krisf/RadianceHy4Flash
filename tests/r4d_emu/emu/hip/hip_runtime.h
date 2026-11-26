@@ -214,6 +214,22 @@ inline void __threadfence() {}
 #define __HIP_MEMORY_SCOPE_AGENT 3
 #define __hip_atomic_fetch_add(p, v, order, scope) emu_atomic_fetch_add((p), (v))
 template <typename T> inline T emu_atomic_fetch_add(T* p, T v) { const T o = *p; *p = o + v; return o; }
+/* The device-resident sequence and the push check (r4d_ar_seq.h) are system-scope words on the
+ * card, read across the link; here one fiber at a time runs them against host memory, where a load
+ * and a store are already the ordering the scope would give. */
+#define __HIP_MEMORY_SCOPE_SYSTEM 4
+template <typename T> inline T emu_atomic_load(const T* p) { return *p; }
+template <typename T> inline void emu_atomic_store(T* p, T v) { *p = v; }
+#define __hip_atomic_load(p, order, scope) emu_atomic_load((p))
+#define __hip_atomic_store(p, v, order, scope) emu_atomic_store((p), (v))
+/* The card's 100 MHz clock, fast-forwarded: 1 mm a read. A spin whose word the test wrote ends on
+ * its first read here, and the push check (r4d_ar_seq.h) gives up on its deadline after a couple
+ * of hundred failed attempts instead of looping forever, so a wrong fixture reports as a trap and
+ * not as a hang. */
+inline unsigned long long wall_clock64() {
+    static unsigned long long t = 0ull;
+    return t += 1000000ull;
+}
 /* The device allocations a unit makes for itself (counter blocks): host memory here. */
 inline hipError_t hipMalloc(void** p, size_t n) { *p = std::calloc(n ? n : 1, 1); return *p ? 0 : 2; }
 inline hipError_t hipMemset(void* p, int v, size_t n) { std::memset(p, v, n); return 0; }

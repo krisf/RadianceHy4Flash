@@ -890,6 +890,19 @@ int  r4d_ar_rmsnorm_quant_fp8(long peer_scratch, long my_scratch, long peer_flag
                               int nblocks, int nthreads, int drain, int acq, int wire,
                               long loc_pack, long loc_scale_off, long wp = 0, long stage = 0);
 int  r4d_ar_rmsnorm_quant_fp8_chunk_elems(void);
+// The exact all-reduce of `a` with the two ops that follow it, in one kernel, in either order
+// (`mode`): 0 = `all_reduce -> rmsnorm -> add` (y = rmsnorm(a), then x += y), 1 = `all_reduce ->
+// add -> rmsnorm` (x += a, then y = rmsnorm(x)). Exact wire only: a norm reads the sum, so a lossy
+// deployment keeps the standalone all-reduce and the pair. Bit-identical to the chains in both
+// modes: the fold is r4d_ar_oneshot_2rank_exact's, the add add_bf16's, the norm rmsnorm_bf16's
+// (r4d_ar_add_rmsnorm.hip has the piece-by-piece argument). IPC arguments are
+// r4d_ar_oneshot_2rank_exact's; `nblocks` is clamped to M because a block owns whole rows, and `a`
+// takes no pitch because it is also the message.
+int  r4d_ar_add_rmsnorm(long peer_scratch, long my_scratch, long peer_flags, long my_flags,
+                        long seq_ctrs, long slot_stride16, long a, long x, long w, long y,
+                        int M, int n, float eps, float wadd, float mult, int w_f32,
+                        int x_ld, int y_ld, long stream, int nblocks, int nthreads, int drain,
+                        int acq, int mode, long stage = 0);
 // Its rotated int8 form, as r4d_rmsnorm_had_quant_i8g: the reduction and the norm unchanged, the
 // norm's pass quantised by had_quant_act_i8g's rule. No post-norm. `group` is the scale group, 128
 // or IQ8R's 256 (`s` [M][n/group]). `chain` launches the chained form (r4d_chain.h) where the

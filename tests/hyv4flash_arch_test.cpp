@@ -3839,6 +3839,120 @@ TEST(dfly2_takes_cast_row_topk_where_served_and_the_cast_pair_otherwise) {
     }
 }
 
+/* D-03 (#89): the drafter's two reductions a layer take the fused twin where a library serves it --
+ * ar_add_rmsnorm: the exact all-reduce of the block's partial sum with the residual add and the RMS
+ * norm beside it, one launch, in either order. The output projection's chain is all_reduce,
+ * post-norm, add (mode 0, reading o_proj and x, writing y); the MLP's is all_reduce, add, norm
+ * (mode 1, reading y and x, writing x and the norm), that norm being the next layer's input norm
+ * or -- on the only draft layer this model declares, the last one -- the final norm, so the add and
+ * the final norm are then issued nowhere else. At one rank there is no reduction to fuse and the
+ * pair is kept, as it is by a library that does not declare the op or refuses it. */
+void no_ar_add_rmsnorm(RadBuilder* b) { bf16_encs(b); b->undeclared.insert("ar_add_rmsnorm"); }
+void refused_ar_add_rmsnorm(RadBuilder* b) { bf16_encs(b); b->refuse.insert("ar_add_rmsnorm"); }
+TEST(dfly2_takes_the_fused_reduction_add_norm_where_served_and_the_chain_otherwise) {
+    const int depth = 5;
+    for (int world : { 1, 2 }) for (int form = 0; form < 3; ++form) {
+        DeclDfly d(depth, dfly_meta(), world, 0,
+                   form == 0 ? bf16_encs : form == 1 ? no_ar_add_rmsnorm : refused_ar_add_rmsnorm);
+        REQUIRE_EQ(d.rc, RAD_OK);
+        RadBuilder& b = d.b;
+        const auto& df = d.df();
+        const bool fused = world == 2 && form == 0;
+        REQUIRE_EQ(df.lay.size(), (size_t)1);
+        const auto& L = df.lay[0];
+        REQUIRE(L.post);   /* the served model's draft layer has the output projection's post-norm */
+        CHECK_EQ(L.op_ar_add != 0, fused);
+        CHECK_EQ(L.op_ar_next != 0, fused);
+        CHECK_EQ(L.op_post != 0, !fused);
+        CHECK_EQ(L.op_add1 != 0, !fused);
+        /* the last layer's fused twin takes the final norm, so nothing else issues it */
+        CHECK_EQ(df.op_final != 0 || df.op_final_add != 0, !fused);
+        CHECK_EQ(L.op_add2 != 0, false);   /* D-01's add_rmsnorm: the MLP's sum is not its shape */
+        if (fused) {
+            const RecOp* s0 = b.op_of(L.op_ar_add);
+            REQUIRE(s0);
+            CHECK_EQ(pstr(s0, "dtype"), std::string("bf16"));
+            CHECK_EQ(pint(s0, "world_size"), 2);
+            CHECK_EQ(pint(s0, "mode"), 0);
+            REQUIRE_EQ(s0->reads.size(), (size_t)2);
+            CHECK_EQ(b.bufs[s0->reads[0] - 1].name, std::string("dfly.o_proj"));
+            CHECK_EQ(b.bufs[s0->reads[1] - 1].name, std::string("dfly.x"));
+            REQUIRE_EQ(s0->writes.size(), (size_t)3);
+            CHECK_EQ(b.bufs[s0->writes[2] - 1].name, std::string("dfly.y"));
+            REQUIRE_EQ(s0->w.size(), (size_t)1);
+            CHECK_EQ(s0->w[0], L.post_norm);
+            const RecOp* s1 = b.op_of(L.op_ar_next);
+            REQUIRE(s1);
+            CHECK_EQ(pint(s1, "world_size"), 2);
+            CHECK_EQ(pint(s1, "mode"), 1);
+            REQUIRE_EQ(s1->reads.size(), (size_t)2);
+            CHECK_EQ(b.bufs[s1->reads[0] - 1].name, std::string("dfly.y"));
+            CHECK_EQ(b.bufs[s1->reads[1] - 1].name, std::string("dfly.x"));
+            REQUIRE_EQ(s1->writes.size(), (size_t)3);
+            CHECK_EQ(b.bufs[s1->writes[2] - 1].name, std::string("dfly.final"));
+            REQUIRE_EQ(s1->w.size(), (size_t)1);
+            CHECK_EQ(s1->w[0], L.ar_next_w);
+            CHECK_EQ(L.ar_next_out, s1->writes[2]);
+        }
+        auto trunk = kit(b, std::vector<int>(2, depth + 1), {});
+        trunk->b.positions_h = trunk->pos.data();
+        auto ctxp = context_pass(b, *trunk);
+        Query qp(b, 2, depth + 1, depth);
+        auto ps = run_passes(b, hyv4flash::step, { trunk.get(), ctxp.get(), qp.k.get() }, 0, world);
+        for (const auto& c : ps) {
+            if (!c->step_fail.empty()) fprintf(stderr, "%s\n", c->step_fail.c_str());
+            CHECK(c->step_fail.empty());
+        }
+        CHECK_LINT(b, ps[0].get(), ps[1].get(), ps[2].get());
+        const auto q = issued_ops(b, *ps[2]);
+        auto count = [&](const char* op) { return (int64_t)std::count(q.begin(), q.end(), std::string(op)); };
+        CHECK_EQ(count("ar_add_rmsnorm"), fused ? 2 : 0);
+        /* the drafter's own reductions: one a chain round, plus the layer's pair unless fused (the
+         * pass's other all_reduces are the trunk's, which this does not count) */
+        int64_t ars = 0, attn_issues = 0, ffn_issues = 0, fins = 0;
+        for (const auto& is : ps[2]->issues) {
+            const bool draft_ar = !fused && (is.op == df.op_ar_o || is.op == df.op_ar_y);
+            ars += draft_ar || (df.op_ar_c && is.op == df.op_ar_c);
+            attn_issues += is.op == L.op_attn_norm || (L.op_attn_norm_q && is.op == L.op_attn_norm_q);
+            ffn_issues += is.op == L.op_ffn_norm || (L.op_ffn_norm_q && is.op == L.op_ffn_norm_q);
+            fins += is.op == df.op_final || (df.op_final_add && is.op == df.op_final_add);
+        }
+        CHECK_EQ(ars, world == 1 ? 0 : (int64_t)df.steps.size() + (fused ? 0 : 2));
+        /* each of the layer's input norms is issued once -- after the fused twin of the layer
+         * before it as much as after the chain -- and the final norm only where nothing fused it */
+        CHECK_EQ(attn_issues, 1);
+        CHECK_EQ(ffn_issues, 1);
+        CHECK_EQ(fins, fused ? 0 : 1);
+        /* mode 0's launch stands where the output projection's reduction, post-norm and add stood:
+         * after the projection, before the MLP's input norm. Mode 1's closes the layer, after the
+         * down projection, and the final norm is not issued beside it. */
+        size_t at_oproj = SIZE_MAX, at_s0 = SIZE_MAX, at_ffn = SIZE_MAX, at_down = SIZE_MAX,
+               at_s1 = SIZE_MAX, at_fin = SIZE_MAX, at_attn = SIZE_MAX;
+        for (size_t i = 0; i < ps[2]->issues.size(); ++i) {
+            const rad_op h = ps[2]->issues[i].op;
+            if (h == L.p_out.op && at_oproj == SIZE_MAX) at_oproj = i;
+            if (fused && h == L.op_ar_add && at_s0 == SIZE_MAX) at_s0 = i;
+            if (h == L.op_ffn_norm && at_ffn == SIZE_MAX) at_ffn = i;
+            if (h == L.p_down.op && at_down == SIZE_MAX) at_down = i;
+            if (fused && h == L.op_ar_next && at_s1 == SIZE_MAX) at_s1 = i;
+            if ((h == df.op_final || h == df.op_final_add) && at_fin == SIZE_MAX) at_fin = i;
+            if (h == L.op_attn_norm && at_attn == SIZE_MAX) at_attn = i;
+        }
+        REQUIRE(at_oproj != SIZE_MAX && at_ffn != SIZE_MAX && at_attn != SIZE_MAX);
+        if (fused) {
+            REQUIRE(at_s0 != SIZE_MAX && at_s1 != SIZE_MAX);
+            CHECK(at_oproj < at_s0 && at_s0 < at_ffn);
+            CHECK(at_down < at_s1);
+            CHECK_EQ(at_fin, SIZE_MAX);
+        } else {
+            CHECK_EQ(at_s0, SIZE_MAX);
+            CHECK_EQ(at_s1, SIZE_MAX);
+            CHECK(at_oproj < at_ffn);
+            if (world == 2) CHECK(at_fin != SIZE_MAX);
+        }
+    }
+}
+
 /* D-06 (#91): DFly2 also serves a short block (rad_drafter_short_block) of 4 rows, the anchor and 3
  * masks, which the core stages under load (--draft-short-from): 3 proposals, two chain rounds fewer
  * at depth 5. The draft is causal (dfly_sel gives a row the keys up to its own position), so the

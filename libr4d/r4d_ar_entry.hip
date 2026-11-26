@@ -1540,6 +1540,81 @@ extern "C" int r4d_rad_ar_rmsnorm_had_quant_i8g(const RadArgs* a, RadStream s) {
     return rad_ar_rmsnorm_quant(a, s, true);
 }
 
+/* The exact all-reduce of `a` and the pair of ops that follow it, in one kernel, in either order
+ * (`mode`): 0 = `all_reduce -> rmsnorm -> add`, 1 = `all_reduce -> add -> rmsnorm`. Exact wire
+ * only: a norm reads the sum, so a lossy deployment keeps the standalone all-reduce and the pair.
+ *
+ * `a` is inout: the reduced sum lands back in it, as the standalone exact all-reduce stores it, so
+ * a later reader of `a` sees the unfused chain's bytes. Operands:
+ *   [0] a  [M][n] bf16 inout, tight (it is the message and what a block pushes)
+ *   [1] x  [M][n] bf16 inout, the residual stream (may be pitched)
+ *   [2] w  [n]    f32 or bf16 gain
+ *   [3] y  [M][n] bf16 out, the norm (may be pitched)
+ * Width and block count as in ar_rmsnorm_quant_fp8: the norm's width from M, the block count
+ * clamped to M. Neither changes a byte. */
+enum { AN_A = 0, AN_X, AN_W, AN_Y };
+
+static int rad_ar_add_rmsnorm(const RadArgs* a, RadStream s) {
+    const ArInst* in = (const ArInst*)(a ? a->instance : nullptr);
+    if (!in) return RAD_E_STATE;
+    if (in->world != 2) return RAD_E_SHAPE;
+
+    const RadTensor* aa = r4d_opt(a, AN_A);
+    const RadTensor* x  = r4d_opt(a, AN_X);
+    const RadTensor* w  = r4d_opt(a, AN_W);
+    const RadTensor* y  = r4d_opt(a, AN_Y);
+    if (!aa || !x || !w || !y) return RAD_E_INVAL;
+    if (aa->dtype != RAD_BF16 || x->dtype != RAD_BF16 || y->dtype != RAD_BF16) return RAD_E_DTYPE;
+    if (w->dtype != RAD_F32 && w->dtype != RAD_BF16) return RAD_E_DTYPE;
+    if (!r4d_contig(w)) return RAD_E_STRIDE;
+    if (aa->rank != 2 || x->rank != 2 || y->rank != 2) return RAD_E_SHAPE;
+    const long long M = aa->shape[0], K = aa->shape[1];
+    if (M < 1 || K < 1) return RAD_E_SHAPE;
+    if (M * K > in->max_numel) return RAD_E_SHAPE;
+    /* A row must be whole 16B words, since a block pushes its rows as words. */
+    if (K % 8) return RAD_E_SHAPE;
+    if (r4d_numel(w) != K) return RAD_E_SHAPE;
+    if (x->shape[0] != M || x->shape[1] != K) return RAD_E_SHAPE;
+    if (y->shape[0] != M || y->shape[1] != K) return RAD_E_SHAPE;
+    /* `a` is the message, so it must be tight; the stream and the norm may be pitched. */
+    const long long ap = r4d_row_pitch(aa), xp = r4d_row_pitch(x), yp = r4d_row_pitch(y);
+    if (ap < 0 || xp < 0 || yp < 0) return RAD_E_STRIDE;
+    if (ap != K) return RAD_E_STRIDE;
+
+    const long long mode = r4d_geti_or(a, "mode", 1);
+    if (mode != 0 && mode != 1) return RAD_E_INVAL;
+    const float eps  = (float)r4d_getf(a, "eps", 1e-6);
+    const float wadd = (float)r4d_getf(a, "wadd", 0.0);
+    const float mult = (float)r4d_getf(a, "mult", 1.0);
+    /* Gain dtype comes from the operand, as in rmsnorm_bf16's shim. */
+    const int w_f32 = w->dtype == RAD_F32;
+
+    R4dArCfg cfgv;
+    r4d_cfg_ar(a, &cfgv);
+    /* The width is the standalone rmsnorm's, resolved from M by the entry point (0); the sums fold
+     * in kR4dSumLanes' partition at every width, so a tuned width changes no bytes either. */
+    const int nthreads = cfgv.nthreads;
+    /* One block a row, the norm's shape rather than the all-reduce's (the same argument as
+     * ar_rmsnorm_quant_fp8's): the norm serialises the rows a block owns, so a block count below M
+     * costs more than the dispatch it saves. A tuned count may name a smaller one; the entry point
+     * clamps it to [1, M] and the flags' capacity. */
+    int nblocks = cfgv.nblocks > 0 ? cfgv.nblocks : (int)M;
+    if (nblocks > (int)M) nblocks = (int)M;
+    if (nblocks > in->max_blocks) nblocks = in->max_blocks;
+    if (nblocks < 1) nblocks = 1;
+
+    const int e = r4d_ar_add_rmsnorm(
+        in->peer_scratch[0], in->my_scratch, in->peer_flags[0], in->my_flags, in->my_seq,
+        in->slot16, r4d_addr(aa), r4d_addr(x), r4d_addr(w), r4d_addr(y),
+        (int)M, (int)K, eps, wadd, mult, w_f32, (int)xp, (int)yp,
+        (long)(uintptr_t)s, nblocks, nthreads, cfgv.drain, cfgv.acq, (int)mode, in->my_stage);
+    return e == 0 ? RAD_OK : RAD_E_SHAPE;
+}
+
+extern "C" int r4d_rad_ar_add_rmsnorm(const RadArgs* a, RadStream s) {
+    return rad_ar_add_rmsnorm(a, s);
+}
+
 /* The all-reduce and the sandwich-norm junction after it, int8 out: exact `all_reduce` of `x`, then
  * `rmsnorm_quant_i8` (post-norm of the reduced x, residual add, scalar, norm and the per-row int8
  * quantiser the w4a8 skinny GEMM reads). Operands are rmsnorm_quant_i8's with `x` inout, since the

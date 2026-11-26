@@ -149,6 +149,9 @@ set(R4D_UNITS
   "r4d_ar_oneshot_2rank_exact|"
   # Hy4-flash's iHC junction behind the exact all-reduce (two ranks, four ranks).
   "r4d_ar_ihc_junction|"
+  # The exact all-reduce of a block's partial sum with the residual add and the RMS norm beside it,
+  # in one kernel (T6: the drafter's two reductions a layer).
+  "r4d_ar_add_rmsnorm|"
   "r4d_ar_oneshot_2rank_wht6|"
   "r4d_ar_oneshot_Nrank_exact|"
   "r4d_ar_twoshot_Nrank_exact|"

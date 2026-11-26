@@ -675,6 +675,11 @@ list(APPEND R4D_EMU_HIP ${R4D_DIR}/r4d_ihc_bf16.hip ${R4D_DIR}/r4d_engram_bf16.h
 set(R4D_EMU_TESTS attn pick norm escale qsa lora f32 mhc kda mla moefuse kvres
                   dsa lili vit)
 list(APPEND R4D_EMU_TESTS attn_kv_sink hy4 mla_sink mla_kv idxpool qsafront row topk)
+# The exact all-reduce with the residual add and the RMS norm beside it (T6, D-03): the two-rank
+# family's one kernel the emulator can run, since it takes its peer's bytes from a slot the test
+# fills rather than from a second card.
+list(APPEND R4D_EMU_HIP ${R4D_DIR}/r4d_ar_add_rmsnorm.hip)
+list(APPEND R4D_EMU_TESTS ar_add_rmsnorm)
 # The sampler (test_sample.cpp): each case in both thread orders (emu_reverse_order) against a
 # serial host oracle, so a result that depends on the order threads reach an LDS atomic in fails.
 list(APPEND R4D_EMU_HIP ${R4D_DIR}/r4d_sample_chain_f32.hip ${R4D_DIR}/r4d_sample_stages_f32.hip)
@@ -726,7 +731,7 @@ else()
                 ${R4D_EMU}/test_hy4.cpp ${R4D_EMU}/test_mla_sink.cpp
                 ${R4D_EMU}/test_mla_kv.cpp ${R4D_EMU}/test_idxpool.cpp
                 ${R4D_EMU}/test_qsafront.cpp ${R4D_EMU}/test_row.cpp ${R4D_EMU}/test_topk.cpp
-                ${R4D_EMU}/test_sample.cpp)
+                ${R4D_EMU}/test_sample.cpp ${R4D_EMU}/test_ar_add_rmsnorm.cpp)
       get_filename_component(stem ${src} NAME_WE)
       set(lang "")
       if(src MATCHES "\\.hip$")
@@ -764,9 +769,13 @@ else()
 endif()
 if(R4D_EMU_BUILT)
   foreach(t pick norm escale qsa lora f32 mhc kda mla moefuse kvres dsa lili vit hy4 mla_sink
-            mla_kv idxpool qsafront row topk)
+            mla_kv idxpool qsafront row topk ar_add_rmsnorm)
     add_test(NAME r4d_emu_${t} COMMAND ${CMAKE_BINARY_DIR}/tests/r4d_emu_${t})
   endforeach()
+  # r4d_emu_ar_add_rmsnorm: the fused exact all-reduce with the residual add and the RMS norm
+  # against the chain it replaces, byte for byte, in both orders and at every width the row may be
+  # tuned to (r4d_ar_add_rmsnorm.hip).
+  set_tests_properties(r4d_emu_ar_add_rmsnorm PROPERTIES LABELS "r4d_emu" TIMEOUT ${RAD_TEST_TIMEOUT})
   # Hy4-flash's non-absorbed prefill (attn_kv_sink_h256): about 4 s.
   add_test(NAME r4d_emu_attn_kv_sink COMMAND ${CMAKE_BINARY_DIR}/tests/r4d_emu_attn_kv_sink)
   set_tests_properties(r4d_emu_attn_kv_sink PROPERTIES LABELS "r4d_emu" TIMEOUT ${RAD_TEST_TIMEOUT})
