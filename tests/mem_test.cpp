@@ -9376,3 +9376,25 @@ TEST(a_streamed_op_exists_only_for_a_capable_architecture_and_a_ring) {
     CHECK(!kvstream_op_gated(ctx, "kv_store"));
     CHECK(!kvstream_op_gated(ctx, "attn_paged"));
 }
+
+/* The backend selection itself: a host backend or unified memory never asks the driver for code
+ * objects, so the charge is zero and the receipt must not claim metadata. (M-09) */
+TEST(queue_scratch_is_zero_on_the_host_backend_and_on_unified_memory) {
+    RadDeviceProps host{};
+    host.is_host_backend = true;
+    RadQueueScratch h = rad_dev_resident_scratch_bytes(&host);
+    CHECK_EQ(h.bytes, 0);
+    CHECK_EQ(h.largest_private, 0u);
+    CHECK(!h.metadata);
+
+    RadDeviceProps uni{};
+    uni.unified = true;
+    RadQueueScratch u = rad_dev_resident_scratch_bytes(&uni);
+    CHECK_EQ(u.bytes, 0);
+    CHECK(!u.metadata);
+
+    /* and a null props is the same answer, not a crash */
+    RadQueueScratch n = rad_dev_resident_scratch_bytes(nullptr);
+    CHECK_EQ(n.bytes, 0);
+    CHECK(!n.metadata);
+}
