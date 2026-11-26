@@ -721,10 +721,6 @@ TEST(resident_queue_scratch_is_charged_with_the_hardware_queues) {
     CHECK_EQ(want1 - want0, 160LL << 20);
 }
 
-/* RADIANCE_QUEUE_SCRATCH_MIB is a floor on the metadata charge, and it is checked: the review of
- * #278 found the first version took a non-numeric string through strtoll as 0 and clamped it to
- * 1 MiB a CU, so a typo set a charge nobody chose. Unset is 0 -- the kernels' own answer -- 0..64
- * parses, and everything else is refused by name instead of clamped. */
 /* M-09: the rule the charge rests on -- largest segment, not the sum over kernels -- and the
  * one-wave floor that turns it into bytes. Both are pure, so both are checked without a card. */
 TEST(queue_scratch_scan_takes_the_largest_segment_not_the_sum) {
@@ -746,44 +742,65 @@ TEST(queue_scratch_scan_takes_the_largest_segment_not_the_sum) {
     CHECK_EQ(s.declared, 4);
 }
 
-TEST(queue_scratch_bytes_is_one_wave_a_cu_and_never_below_the_metadata) {
-    /* nothing declares a segment: no charge, whatever the knob's default is */
-    CHECK_EQ(queue_scratch_bytes(0, 96, 64, 0), 0);
+TEST(queue_scratch_bytes_is_one_wave_a_cu) {
+    /* nothing declares a segment: no charge */
+    CHECK_EQ(queue_scratch_bytes(0, 96, 64), 0);
     /* 18,256 B rounds to the 16 B ROCr alignment (1024 / 64 lanes), one wave a CU, 96 CUs */
-    const int64_t one_wave = queue_scratch_bytes(18256, 96, 64, 0);
+    const int64_t one_wave = queue_scratch_bytes(18256, 96, 64);
     CHECK_EQ(one_wave, (int64_t)18256 * 64 * 96);
-    /* the knob only adds, MiB a CU at a time */
-    CHECK_EQ(queue_scratch_bytes(18256, 96, 64, 1), one_wave + (1LL << 20) * 96);
-    /* a card with no CUs charges nothing rather than dividing by a zero-width card */
-    CHECK_EQ(queue_scratch_bytes(18256, 0, 64, 0), 0);
+    /* an odd lane count takes the alignment to 1 rather than dividing by zero */
+    CHECK_EQ(queue_scratch_bytes(18256, 8, 0), (int64_t)18256 * 1 * 8);
+    /* a card with no CUs charges nothing */
+    CHECK_EQ(queue_scratch_bytes(18256, 0, 64), 0);
 }
 
-TEST(queue_scratch_knob_refuses_a_value_it_cannot_use) {
-    int64_t mib = -1;
-    std::string why;
-    CHECK(queue_scratch_knob(nullptr, &mib, &why));
-    CHECK_EQ(mib, 0);
-    CHECK(queue_scratch_knob("", &mib, &why));
-    CHECK_EQ(mib, 0);
-    CHECK(queue_scratch_knob("0", &mib, &why));
-    CHECK_EQ(mib, 0);
-    CHECK(queue_scratch_knob("8", &mib, &why));
-    CHECK_EQ(mib, 8);
-    CHECK(queue_scratch_knob("64", &mib, &why));
-    CHECK_EQ(mib, 64);
-    for (const char* bad : {"65", "-1", "abc", "8x", "0x10", " ", "999999999999999999999"}) {
-        mib = -1;
-        why.clear();
-        CHECK(!queue_scratch_knob(bad, &mib, &why));
-        CHECK_EQ(mib, 0);
-        CHECK(why.find("RADIANCE_QUEUE_SCRATCH_MIB") != std::string::npos);
-    }
-    /* And it can never lower the charge: a negative or absurd value adds nothing, it does not
-     * become a smaller floor. */
-    CHECK_EQ(queue_scratch_bytes(0, 64, 32, -8), 0);
-    CHECK_EQ(queue_scratch_bytes(0, 64, 32, 1000),
-             64LL * kQueueScratchMaxMibPerCu * (1LL << 20));
+/* The fallback the review of #278 asked to see tested: a backend that cannot read code objects
+ * keeps the flat 5 MiB a CU bound, and the receipt says which answer it is showing. */
+TEST(queue_scratch_flat_bound_is_five_mib_a_cu_and_zero_for_no_card) {
+    CHECK_EQ(queue_scratch_flat_bytes(0), 0);
+    CHECK_EQ(queue_scratch_flat_bytes(-3), 0);
+    CHECK_EQ(queue_scratch_flat_bytes(32), (int64_t)32 * (5LL << 20));
+    CHECK_EQ(queue_scratch_flat_bytes(96), (int64_t)96 * (5LL << 20));
 }
+
+TEST(the_queue_scratch_receipt_names_which_answer_it_shows) {
+    auto report = [](bool metadata, int64_t bytes, int plan, int kernels, uint32_t priv,
+                     const char* kernel) {
+        Config c = small_config();
+        c.vram_weights_mib = 0;
+        c.vram_kv_mib      = 0;
+        c.gpu_headroom_mib = 96;
+        VramFacts f{};
+        f.capacity    = 32LL << 30;
+        f.free        = f.capacity - (512LL << 20);
+        f.statics     = 2LL << 30;
+        f.experts     = 200LL << 30;
+        f.kv_ceiling  = 100LL << 30;
+        f.n_queues    = 2; f.queue_bytes = 33LL << 20;
+        f.queue_scratch     = bytes;
+        f.scratch_metadata  = metadata;
+        f.scratch_plan      = plan;
+        f.scratch_kernels   = kernels;
+        f.scratch_private   = priv;
+        f.scratch_kernel    = kernel;
+        VramBudget b;
+        CHECK_OK(vram_budget_resolve(c, { f }, &b));
+        return b.report;
+    };
+    /* no code object registered yet: the metadata answer with nothing to charge */
+    CHECK(report(true, 0, 0, 0, 0, "").find("no code object registered yet") != std::string::npos);
+    /* metadata, nothing declares a segment */
+    CHECK(report(true, 0, 12, 0, 0, "").find("none of the 12 kernels") != std::string::npos);
+    /* the flat bound: the backend does not read code objects */
+    const std::string flat = report(false, 160LL << 20, 0, 0, 0, "");
+    CHECK(flat.find("the flat 5 MiB a CU bound") != std::string::npos);
+    CHECK(flat.find("does not read code objects") != std::string::npos);
+    /* metadata with a segment: the heaviest kernel is named */
+    const std::string meta = report(true, 112LL << 20, 40, 3, 18256, "hyv4flash_dfly2_coupled_verify");
+    CHECK(meta.find("hyv4flash_dfly2_coupled_verify") != std::string::npos);
+    CHECK(meta.find("3 of the 40 kernels") != std::string::npos);
+}
+
 
 /* The queue scratch is the plan's heaviest private segment once a card, and 0 when nothing the
  * plan launches declares one -- the answer the flat 5 MiB a CU never asked the kernels for. The
@@ -796,12 +813,10 @@ TEST(queue_scratch_is_charged_from_the_kernels_private_segments) {
     CHECK_EQ(queue_scratch_align(1), 1024u);
     CHECK_EQ(queue_scratch_align(0), 1u);              /* never a divide by zero */
 
-    CHECK_EQ(queue_scratch_bytes(0, 64, 32, 0), 0);    /* no private segment: nothing resident */
-    CHECK_EQ(queue_scratch_bytes(44, 64, 32, 0), 64LL * 32 * 64);   /* 44 -> 64, one wave a CU */
-    CHECK_EQ(queue_scratch_bytes(18256, 64, 32, 0), 18272LL * 32 * 64);
-    CHECK_EQ(queue_scratch_bytes(18256, 64, 32, 1),
-             18272LL * 32 * 64 + (1LL << 20) * 64);    /* the knob is MiB a CU */
-    CHECK_EQ(queue_scratch_bytes(18256, 0, 32, 0), 0);
+    CHECK_EQ(queue_scratch_bytes(0, 64, 32), 0);    /* no private segment: nothing resident */
+    CHECK_EQ(queue_scratch_bytes(44, 64, 32), 64LL * 32 * 64);   /* 44 -> 64, one wave a CU */
+    CHECK_EQ(queue_scratch_bytes(18256, 64, 32), 18272LL * 32 * 64);
+    CHECK_EQ(queue_scratch_bytes(18256, 0, 32), 0);
 
     /* The receipt names what set it, so a lane reads the charge off the plan's own block. */
     Config c = small_config();
@@ -816,7 +831,7 @@ TEST(queue_scratch_is_charged_from_the_kernels_private_segments) {
     f.experts  = 200LL << 30;
     f.kv_ceiling = 100LL << 30;
     f.n_queues = 2; f.queue_bytes = 33LL << 20;
-    f.queue_scratch    = queue_scratch_bytes(18256, 64, 32, 0);
+    f.queue_scratch    = queue_scratch_bytes(18256, 64, 32);
     f.scratch_private  = 18256;
     f.scratch_kernels  = 1;
     f.scratch_plan     = 47;

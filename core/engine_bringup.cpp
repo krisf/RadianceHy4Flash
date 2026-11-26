@@ -2030,21 +2030,6 @@ static int declare_ring_windows(KVManager& kv, const Program& prog) {
 }
 
 int Engine::plan() {
-    /* A deployment's floor on the queue-scratch charge, parsed here so a typo stops the start
-     * instead of becoming a charge nobody chose (core/device/queue_scratch.h). 0 by default: the
-     * charge is the kernels' own metadata. */
-    int64_t queue_scratch_extra_mib = 0;
-    {
-        std::string why;
-        if (!queue_scratch_knob(std::getenv("RADIANCE_QUEUE_SCRATCH_MIB"), &queue_scratch_extra_mib,
-                                &why)) {
-            RAD_ERR("%s", why.c_str());
-            return RAD_E_INVAL;
-        }
-        if (queue_scratch_extra_mib)
-            RAD_INFO("queue scratch: %lld MiB a CU added to the metadata charge (RADIANCE_QUEUE_SCRATCH_MIB)",
-                     (long long)queue_scratch_extra_mib);
-    }
     /* The budget is resolved once, for every rank, before any rank allocates. vram_budget_resolve
      * folds the smallest capacity with the largest program so one split fits every card, and
      * writes it into Config; per-rank resolution would let rank 1 measure a card rank 0 already
@@ -2140,7 +2125,7 @@ int Engine::plan() {
              * segment the kernels this rank can launch declare, once a card
              * (core/device/queue_scratch.h). */
             {
-                const RadQueueScratch qs = rad_dev_resident_scratch_bytes(&props, queue_scratch_extra_mib);
+                const RadQueueScratch qs = rad_dev_resident_scratch_bytes(&props);
                 f.queue_scratch    = qs.bytes;
                 f.scratch_private  = qs.largest_private;
                 f.scratch_kernels  = qs.declared;
