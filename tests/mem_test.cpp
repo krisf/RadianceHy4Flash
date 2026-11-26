@@ -725,6 +725,39 @@ TEST(resident_queue_scratch_is_charged_with_the_hardware_queues) {
  * #278 found the first version took a non-numeric string through strtoll as 0 and clamped it to
  * 1 MiB a CU, so a typo set a charge nobody chose. Unset is 0 -- the kernels' own answer -- 0..64
  * parses, and everything else is refused by name instead of clamped. */
+/* M-09: the rule the charge rests on -- largest segment, not the sum over kernels -- and the
+ * one-wave floor that turns it into bytes. Both are pure, so both are checked without a card. */
+TEST(queue_scratch_scan_takes_the_largest_segment_not_the_sum) {
+    ScratchScan s;
+    queue_scratch_take(&s, "hyv4flash_dfly2_coupled_verify.kd", 18256);
+    queue_scratch_take(&s, "step_advance.kd", 4096);
+    queue_scratch_take(&s, "attn_dense.kd", 0);
+    CHECK_EQ(s.total, 3);
+    CHECK_EQ(s.declared, 2);
+    CHECK_EQ(s.largest, 18256u);
+    CHECK_EQ(s.kernel, std::string("hyv4flash_dfly2_coupled_verify"));
+
+    /* a heavier kernel later replaces both, and equal sizes keep the first name */
+    queue_scratch_take(&s, "spiller.kd", 32768);
+    queue_scratch_take(&s, "tie.kd", 32768);
+    CHECK_EQ(s.largest, 32768u);
+    CHECK_EQ(s.kernel, std::string("spiller"));
+    CHECK_EQ(s.total, 5);
+    CHECK_EQ(s.declared, 4);
+}
+
+TEST(queue_scratch_bytes_is_one_wave_a_cu_and_never_below_the_metadata) {
+    /* nothing declares a segment: no charge, whatever the knob's default is */
+    CHECK_EQ(queue_scratch_bytes(0, 96, 64, 0), 0);
+    /* 18,256 B rounds to the 16 B ROCr alignment (1024 / 64 lanes), one wave a CU, 96 CUs */
+    const int64_t one_wave = queue_scratch_bytes(18256, 96, 64, 0);
+    CHECK_EQ(one_wave, (int64_t)18256 * 64 * 96);
+    /* the knob only adds, MiB a CU at a time */
+    CHECK_EQ(queue_scratch_bytes(18256, 96, 64, 1), one_wave + (1LL << 20) * 96);
+    /* a card with no CUs charges nothing rather than dividing by a zero-width card */
+    CHECK_EQ(queue_scratch_bytes(18256, 0, 64, 0), 0);
+}
+
 TEST(queue_scratch_knob_refuses_a_value_it_cannot_use) {
     int64_t mib = -1;
     std::string why;

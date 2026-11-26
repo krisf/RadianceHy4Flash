@@ -64,6 +64,30 @@ inline int64_t queue_scratch_bytes(uint32_t largest_private, int n_cu, int wave,
     return per_thread * lanes * (int64_t)n_cu + extra_mib_per_cu * (1LL << 20) * (int64_t)n_cu;
 }
 
+/* One kernel's private segment, folded into the scan's running answer. `private_size` 0 means the
+ * kernel declares no segment and only counts towards the total; the largest wins, and a name the
+ * runtime keeps as "<kernel>.kd" is reported without the suffix. Split out of the AQL backend so
+ * the rule -- largest, not sum -- is testable without a card (tests/mem_test.cpp). */
+struct ScratchScan {
+    uint32_t    largest = 0;
+    int         declared = 0;      /* kernels that declare a segment */
+    int         total = 0;         /* kernels scanned */
+    std::string kernel;            /* the heaviest one, suffix stripped */
+};
+
+inline void queue_scratch_take(ScratchScan* s, const std::string& name, uint32_t private_size) {
+    if (!s) return;
+    ++s->total;
+    if (!private_size) return;
+    ++s->declared;
+    if (private_size > s->largest) {
+        s->largest = private_size;
+        s->kernel = name;
+        if (s->kernel.size() > 3 && s->kernel.compare(s->kernel.size() - 3, 3, ".kd") == 0)
+            s->kernel.resize(s->kernel.size() - 3);
+    }
+}
+
 /* Parses one RADIANCE_QUEUE_SCRATCH_MIB value. `value` null or empty means unset: 0, no error.
  * Anything else must be a whole decimal number in [0, kQueueScratchMaxMibPerCu]; outside it, or
  * with a trailing character, `*why` names the variable and the value and the answer is false. */

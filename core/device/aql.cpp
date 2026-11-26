@@ -32,6 +32,7 @@
  * chained launch"): it reads behind a wait in its own prologue, long after its packet's acquire.
  */
 #include "device.h"
+#include "queue_scratch.h"
 
 #if defined(RAD_HAVE_HIP) && RAD_HAVE_HIP
 
@@ -5118,29 +5119,18 @@ int a_kernel_scratch_max(int device, uint32_t* largest, int* declared, int* tota
         ms = r.order;
     }
     const std::vector<std::string>& isas = G().dev[(size_t)device].isas;
-    uint32_t best = 0;
-    std::string best_name;
-    int n = 0, pos = 0;
+    ScratchScan scan;
     for (Module* m : ms) {
         std::lock_guard<std::mutex> lk(m->mu);
         const ModuleImage* im = module_image(m, isas);
         if (!im->co) continue;
-        for (const auto& kv : im->meta) {
-            ++n;
-            if (kv.second.private_size == 0) continue;
-            ++pos;
-            if (kv.second.private_size > best) {
-                best = kv.second.private_size;
-                best_name = kv.first;
-                if (best_name.size() > 3 && best_name.compare(best_name.size() - 3, 3, ".kd") == 0)
-                    best_name.resize(best_name.size() - 3);
-            }
-        }
+        for (const auto& kv : im->meta)
+            queue_scratch_take(&scan, kv.first, kv.second.private_size);
     }
-    if (largest) *largest = best;
-    if (declared) *declared = pos;
-    if (total) *total = n;
-    if (name) *name = std::move(best_name);
+    if (largest) *largest = scan.largest;
+    if (declared) *declared = scan.declared;
+    if (total) *total = scan.total;
+    if (name) *name = std::move(scan.kernel);
     return RAD_OK;
 }
 
