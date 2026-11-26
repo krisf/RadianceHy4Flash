@@ -5185,6 +5185,12 @@ TEST(dfly2_at_tp_splits_heads_and_width_and_merges_the_vocabulary_shards) {
                 size_t i_out = SIZE_MAX, i_ar = SIZE_MAX, i_post = SIZE_MAX, i_down = SIZE_MAX,
                        i_ar2 = SIZE_MAX, i_add2 = SIZE_MAX;
                 std::vector<size_t> chain;
+                /* D-03: at two ranks the layer's two reductions take the fused twin (ar_add_rmsnorm,
+                 * mode 0 at the output projection, mode 1 at the MLP) where the library serves it,
+                 * and the standalone all-reduces, the post-norm and the adds are then issued nowhere
+                 * (dfly2_takes_the_fused_reduction_add_norm_where_served_and_the_chain_otherwise). */
+                const bool fused = L.op_ar_add != 0;
+                CHECK_EQ(L.op_ar_next != 0, fused);
                 const auto& is = ps[2]->issues;
                 for (size_t i = 0; i < is.size(); ++i) {
                     const rad_op op = is[i].op;
@@ -5200,12 +5206,14 @@ TEST(dfly2_at_tp_splits_heads_and_width_and_merges_the_vocabulary_shards) {
                     if (op == df.steps[0].op_ctopk) ++tk;
                     if (op == L.p_out.op) i_out = i;
                     if (op == df.op_ar_o) i_ar = i;
+                    if (L.op_ar_add && op == L.op_ar_add) i_ar = i;
                     if (op == L.op_post || (op == L.op_add1 && i_post == SIZE_MAX)) i_post = std::min(i_post, i);
                     if (op == L.p_down.op) i_down = i;
                     if (op == df.op_ar_y) i_ar2 = i;
+                    if (L.op_ar_next && op == L.op_ar_next) i_ar2 = i;
                     if (op == L.op_add2) i_add2 = i;
                 }
-                CHECK_EQ(ar, 2);
+                CHECK_EQ(ar, fused ? 0 : 2);
                 CHECK_EQ(arc, 5);
                 REQUIRE_EQ(chain.size(), (size_t)15);
                 for (int r = 0; r < 5; ++r) {
@@ -5217,8 +5225,37 @@ TEST(dfly2_at_tp_splits_heads_and_width_and_merges_the_vocabulary_shards) {
                 CHECK_EQ(ga, 5);
                 CHECK_EQ(me, 5);
                 CHECK_EQ(tk, 1);
-                CHECK(i_out < i_ar && i_ar < i_post);
-                CHECK(i_down < i_ar2 && i_ar2 < i_add2);
+                if (!fused) {
+                    /* the chain's order: the projection, its reduction, the post-norm; the down
+                     * projection, the MLP's reduction, its add */
+                    REQUIRE(i_ar != SIZE_MAX && i_ar2 != SIZE_MAX);
+                    CHECK(i_out < i_ar && i_ar < i_post);
+                    CHECK(i_down < i_ar2 && i_ar2 < i_add2);
+                } else {
+                    /* Mode 0 stands where the output projection's three launches stood: after the
+                     * projection, before the MLP's input norm. Mode 1 closes the layer where the
+                     * MLP's reduction and the add stood, and the only draft layer is the last, so
+                     * its norm is the final one (dfly.final). */
+                    REQUIRE(i_ar != SIZE_MAX && i_ar2 != SIZE_MAX);
+                    CHECK(i_out < i_ar && i_ar < i_down && i_down < i_ar2);
+                    auto bname = [&](size_t at, int k) {
+                        const int64_t h = (int64_t)is[at].opd[(size_t)k].handle;
+                        return (h >= 1 && (size_t)h <= b.bufs.size()) ? b.bufs[(size_t)h - 1].name
+                                                                     : std::string("?");
+                    };
+                    /* The twins read and write the draft's own stream buffers only: `o` and `x` in,
+                     * the gain and `y` out (mode 0); `y` and `x` in, the gain and the norm out
+                     * (mode 1). Nothing of the trunk's enters them. */
+                    CHECK_EQ(bname(i_ar, 0), std::string("dfly.o_proj"));
+                    CHECK_EQ(bname(i_ar, 1), std::string("dfly.x"));
+                    CHECK_EQ((rad_weight)is[i_ar].opd[2].handle, L.post_norm);
+                    CHECK_EQ(bname(i_ar, 3), std::string("dfly.y"));
+                    CHECK_EQ(bname(i_ar2, 0), std::string("dfly.y"));
+                    CHECK_EQ(bname(i_ar2, 1), std::string("dfly.x"));
+                    CHECK_EQ((rad_weight)is[i_ar2].opd[2].handle, L.ar_next_w);
+                    CHECK_EQ(L.ar_next_out, (rad_buf)is[i_ar2].opd[3].handle);
+                    CHECK_EQ(bname(i_ar2, 3), std::string("dfly.final"));
+                }
                 /* Exact reductions, in place over the draft's own buffers. */
                 for (rad_op op : { df.op_ar_o, df.op_ar_y, df.op_ar_c })
                     CHECK_EQ(pint(b.op_of(op), "exact"), 1);
