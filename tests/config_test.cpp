@@ -628,6 +628,7 @@ const std::map<std::string, std::vector<std::string>>& legal_values() {
         { "--debug-draft-oracle", { "/o.txt", "--spec-ngram", "4" } },
         { "--prefix-cache-mib", { "256" } }, { "--prefix-cache-ttl", { "60" } },
         { "--placement", { "all_vram" } }, { "--checkpoint-interval", { "256" } },
+        { "--decode-checkpoint-interval", { "256" } },
         { "--prefill-span", { "2" } },
         { "--prefill-span-pass", { "step", "--prefill-span", "2" } },
         { "--prefill-tail-snapshot", { "off" } },
