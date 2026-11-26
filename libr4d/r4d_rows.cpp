@@ -1814,6 +1814,27 @@ static const RadOperandSpec oArRmsNormPostQuantFp8[] = {
     { "w_post",   RAD_OPD_WEIGHT, 0 },
 };
 
+/* ar_add_rmsnorm: the exact two-rank all-reduce of `a` with the residual add and the RMS norm
+ * after it, in one kernel, in either order (`mode` 0 = all_reduce -> rmsnorm -> add, 1 =
+ * all_reduce -> add -> rmsnorm). `a` is the message and inout, `x` the stream and inout, `y` the
+ * norm; `w` is the gain (f32 or bf16, read as the shim's rmsnorm_bf16 does). */
+static const RadParamSpec pArAddRmsNorm[] = {
+    { "M",          RAD_P_INT, RAD_REQUIRED },
+    { "n",          RAD_P_INT, RAD_REQUIRED },
+    { "world_size", RAD_P_INT, RAD_REQUIRED },
+    { "mode",       RAD_P_INT, RAD_REQUIRED },
+    P_F64("eps"),
+    { "dtype",      RAD_P_STR, RAD_REQUIRED },
+    P_F64O("wadd"),
+    P_F64O("mult"),
+};
+static const RadOperandSpec oArAddRmsNorm[] = {
+    { "a", RAD_OPD_INOUT,  0 },   /* the message and the input; receives the reduced sum */
+    { "x", RAD_OPD_INOUT,  0 },   /* the residual stream */
+    { "w", RAD_OPD_WEIGHT, 0 },   /* the norm's gain */
+    { "y", RAD_OPD_OUT,    0 },
+};
+
 /* `rmsnorm_quant_i8` is the norm with r4d_gemm_w4a8_nt_m64's activation producer on its pass:
  * int8 codes in the GEMM's fragment order and one f32 scale per row (quant_act_i8's grid, not
  * quant_act_i8g's per-group one nor the rotated rmsnorm_had_quant_i8's). Its first six operands are
@@ -4424,6 +4445,10 @@ static const RadOpSchema kSchemas[] = {
     SCHEMA("ar_rmsnorm_ihc_junction", pArIhcJunction, oIhcJunction,
            "the exact all-reduce of `a` (after the add, when `b` is passed) and rmsnorm_ihc_junction "
            "over the reduced sum, in one kernel; the reduced sum lands in `a`."),
+    SCHEMA("ar_add_rmsnorm", pArAddRmsNorm, oArAddRmsNorm,
+           "the exact two-rank all-reduce of `a` and the residual add and RMS norm beside it, in "
+           "one kernel; `mode` 0 is all_reduce -> rmsnorm -> add, 1 is all_reduce -> add -> "
+           "rmsnorm, and the reduced sum lands in `a` as the standalone all-reduce stores it."),
     SCHEMA("ar_hc_write", pArHcWrite, oArHcWrite,
            "the all-reduce and the gated residual's write that follows it, in one kernel. Both "
            "wires at two ranks, the exact one at four."),
