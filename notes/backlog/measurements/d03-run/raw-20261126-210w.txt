@@ -1,0 +1,202 @@
+# D-03 raw rows, 210 W run, 2026-11-26 13:56-14:01
+# boot, phase: draft-pass exclusive us/pass and the kernel rows that make it
+## base-r1 c1
+  -- draft pass kind 287: 84 passes, 287 dispatches, exclusive sum 3911.0 us/pass
+     _ZN12_GLOBAL__N_112r4dchain_mvmILj1ELb1EfLj1ELb1ELj0EEEvPKhP   5.0 x  317.61 us =   1588.1 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj1E8r4dcha  46.0 x   17.65 us =    812.1 us/pass
+     _ZN12_GLOBAL__N_122r4dchain_quant_act_fp8ILb1ELb1ELj2EEEvPKt  46.0 x    5.40 us =    248.4 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj1024EtEEvPKT1_PKvP  32.0 x    5.59 us =    179.0 us/pass
+     _Z33r4d_ar_oneshot_2rank_exact_kernelI14__hip_bfloat16Li8E8r  15.0 x    7.85 us =    117.7 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_copy2d16EPKDv4_jPS0_mmmm          21.0 x    4.59 us =     96.5 us/pass
+     _ZN12_GLOBAL__N_113mla_sink_rowsILi1ELb1ELb1ELb0E8r4dchainEE   5.0 x   17.16 us =     85.8 us/pass
+     _ZN12_GLOBAL__N_115r4dchain_binaryEPKtS1_Ptjjjjijf            15.0 x    5.41 us =     81.2 us/pass
+     _ZN12_GLOBAL__N_17proposeE23RadMtpCoupleProposeCall            5.0 x   13.45 us =     67.3 us/pass
+     _Z24r4dchain_ar_gather_2rankPK15HIP_vector_typeIiLj4EEPS0_S2   5.0 x   12.28 us =     61.4 us/pass
+     _Z22r4dchain_rowtopk_fusedILi8ELi8EfEvPKT1_Pyiiii10R4dTopkOu   5.0 x   11.46 us =     57.3 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_silu_mulEPKtPtjjj                 10.0 x    5.57 us =     55.7 us/pass
+     _Z25r4dchain_gemm_bf16_nt_m64ILi1EEvPKtS1_P14__hip_bfloat16i   5.0 x    9.08 us =     45.4 us/pass
+## base-r1 c8
+  -- draft pass kind 282: 78 passes, 282 dispatches, exclusive sum 4868.5 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_lm_wmmaILj1ELj2ELb1ELj1ELj0EEEvP   5.0 x  340.46 us =   1702.3 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj3E8r4dcha  30.0 x   28.04 us =    841.2 us/pass
+     _ZN12_GLOBAL__N_122r4dchain_quant_act_fp8ILb1ELb1ELj2EEEvPKt  46.0 x    8.09 us =    372.3 us/pass
+     _Z33r4d_ar_oneshot_2rank_exact_kernelI14__hip_bfloat16Li8E8r  15.0 x   17.34 us =    260.1 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj1E8r4dcha  16.0 x   12.67 us =    202.7 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj512EtEEvPKT1_PKvPt  20.0 x    7.45 us =    149.1 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_copy2d16EPKDv4_jPS0_mmmm          21.0 x    7.01 us =    147.3 us/pass
+     _ZN12_GLOBAL__N_113mla_sink_rowsILi1ELb1ELb1ELb0E8r4dchainEE   5.0 x   26.45 us =    132.3 us/pass
+     _ZN12_GLOBAL__N_115r4dchain_binaryEPKtS1_Ptjjjjijf            15.0 x    6.93 us =    103.9 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj1024EtEEvPKT1_PKvP  12.0 x    7.83 us =     94.0 us/pass
+     _Z22r4dchain_rowtopk_fusedILi8ELi8EfEvPKT1_Pyiiii10R4dTopkOu   5.0 x   18.49 us =     92.4 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_silu_mulEPKtPtjjj                 10.0 x    8.53 us =     85.3 us/pass
+     _ZN12_GLOBAL__N_17proposeE23RadMtpCoupleProposeCall            5.0 x   12.73 us =     63.7 us/pass
+## base-r2 c1
+  -- draft pass kind 287: 76 passes, 287 dispatches, exclusive sum 3976.9 us/pass
+     _ZN12_GLOBAL__N_112r4dchain_mvmILj1ELb1EfLj1ELb1ELj0EEEvPKhP   5.0 x  319.44 us =   1597.2 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj1E8r4dcha  46.0 x   17.44 us =    802.1 us/pass
+     _ZN12_GLOBAL__N_122r4dchain_quant_act_fp8ILb1ELb1ELj2EEEvPKt  46.0 x    5.79 us =    266.1 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj1024EtEEvPKT1_PKvP  32.0 x    5.91 us =    189.0 us/pass
+     _Z33r4d_ar_oneshot_2rank_exact_kernelI14__hip_bfloat16Li8E8r  15.0 x    7.99 us =    119.8 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_copy2d16EPKDv4_jPS0_mmmm          21.0 x    4.83 us =    101.4 us/pass
+     _ZN12_GLOBAL__N_115r4dchain_binaryEPKtS1_Ptjjjjijf            15.0 x    5.84 us =     87.6 us/pass
+     _ZN12_GLOBAL__N_113mla_sink_rowsILi1ELb1ELb1ELb0E8r4dchainEE   5.0 x   17.32 us =     86.6 us/pass
+     _ZN12_GLOBAL__N_17proposeE23RadMtpCoupleProposeCall            5.0 x   13.59 us =     67.9 us/pass
+     _Z24r4dchain_ar_gather_2rankPK15HIP_vector_typeIiLj4EEPS0_S2   5.0 x   12.21 us =     61.0 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_silu_mulEPKtPtjjj                 10.0 x    6.07 us =     60.7 us/pass
+     _Z22r4dchain_rowtopk_fusedILi8ELi8EfEvPKT1_Pyiiii10R4dTopkOu   5.0 x   11.31 us =     56.6 us/pass
+     _Z25r4dchain_gemm_bf16_nt_m64ILi1EEvPKtS1_P14__hip_bfloat16i   5.0 x    9.40 us =     47.0 us/pass
+## base-r2 c8
+  -- draft pass kind 282: 79 passes, 282 dispatches, exclusive sum 4905.1 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_lm_wmmaILj1ELj2ELb1ELj1ELj0EEEvP   5.0 x  340.05 us =   1700.2 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj3E8r4dcha  30.0 x   28.32 us =    849.7 us/pass
+     _ZN12_GLOBAL__N_122r4dchain_quant_act_fp8ILb1ELb1ELj2EEEvPKt  46.0 x    8.12 us =    373.6 us/pass
+     _Z33r4d_ar_oneshot_2rank_exact_kernelI14__hip_bfloat16Li8E8r  15.0 x   17.70 us =    265.5 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj1E8r4dcha  16.0 x   12.78 us =    204.4 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj512EtEEvPKT1_PKvPt  20.0 x    7.55 us =    151.1 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_copy2d16EPKDv4_jPS0_mmmm          21.0 x    7.04 us =    147.8 us/pass
+     _ZN12_GLOBAL__N_113mla_sink_rowsILi1ELb1ELb1ELb0E8r4dchainEE   5.0 x   27.93 us =    139.7 us/pass
+     _ZN12_GLOBAL__N_115r4dchain_binaryEPKtS1_Ptjjjjijf            15.0 x    6.89 us =    103.3 us/pass
+     _Z22r4dchain_rowtopk_fusedILi8ELi8EfEvPKT1_Pyiiii10R4dTopkOu   5.0 x   18.85 us =     94.2 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj1024EtEEvPKT1_PKvP  12.0 x    7.71 us =     92.6 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_silu_mulEPKtPtjjj                 10.0 x    8.78 us =     87.8 us/pass
+     _ZN12_GLOBAL__N_17proposeE23RadMtpCoupleProposeCall            5.0 x   12.85 us =     64.2 us/pass
+## base-r3 c1
+  -- draft pass kind 287: 88 passes, 287 dispatches, exclusive sum 3960.6 us/pass
+     _ZN12_GLOBAL__N_112r4dchain_mvmILj1ELb1EfLj1ELb1ELj0EEEvPKhP   5.0 x  317.41 us =   1587.1 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj1E8r4dcha  46.0 x   17.37 us =    799.2 us/pass
+     _ZN12_GLOBAL__N_122r4dchain_quant_act_fp8ILb1ELb1ELj2EEEvPKt  46.0 x    5.85 us =    269.3 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj1024EtEEvPKT1_PKvP  32.0 x    5.90 us =    188.6 us/pass
+     _Z33r4d_ar_oneshot_2rank_exact_kernelI14__hip_bfloat16Li8E8r  15.0 x    7.91 us =    118.6 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_copy2d16EPKDv4_jPS0_mmmm          21.0 x    4.89 us =    102.7 us/pass
+     _ZN12_GLOBAL__N_115r4dchain_binaryEPKtS1_Ptjjjjijf            15.0 x    5.77 us =     86.6 us/pass
+     _ZN12_GLOBAL__N_113mla_sink_rowsILi1ELb1ELb1ELb0E8r4dchainEE   5.0 x   16.83 us =     84.2 us/pass
+     _ZN12_GLOBAL__N_17proposeE23RadMtpCoupleProposeCall            5.0 x   13.53 us =     67.7 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_silu_mulEPKtPtjjj                 10.0 x    6.15 us =     61.5 us/pass
+     _Z24r4dchain_ar_gather_2rankPK15HIP_vector_typeIiLj4EEPS0_S2   5.0 x   12.00 us =     60.0 us/pass
+     _Z22r4dchain_rowtopk_fusedILi8ELi8EfEvPKT1_Pyiiii10R4dTopkOu   5.0 x   11.39 us =     56.9 us/pass
+     _Z25r4dchain_gemm_bf16_nt_m64ILi1EEvPKtS1_P14__hip_bfloat16i   5.0 x    9.33 us =     46.7 us/pass
+## base-r3 c8
+  -- draft pass kind 282: 77 passes, 282 dispatches, exclusive sum 4894.7 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_lm_wmmaILj1ELj2ELb1ELj1ELj0EEEvP   5.0 x  339.93 us =   1699.6 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj3E8r4dcha  30.0 x   28.34 us =    850.3 us/pass
+     _ZN12_GLOBAL__N_122r4dchain_quant_act_fp8ILb1ELb1ELj2EEEvPKt  46.0 x    8.10 us =    372.4 us/pass
+     _Z33r4d_ar_oneshot_2rank_exact_kernelI14__hip_bfloat16Li8E8r  15.0 x   17.28 us =    259.2 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj1E8r4dcha  16.0 x   12.57 us =    201.1 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj512EtEEvPKT1_PKvPt  20.0 x    7.52 us =    150.5 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_copy2d16EPKDv4_jPS0_mmmm          21.0 x    7.06 us =    148.3 us/pass
+     _ZN12_GLOBAL__N_113mla_sink_rowsILi1ELb1ELb1ELb0E8r4dchainEE   5.0 x   27.16 us =    135.8 us/pass
+     _ZN12_GLOBAL__N_115r4dchain_binaryEPKtS1_Ptjjjjijf            15.0 x    6.94 us =    104.1 us/pass
+     _Z22r4dchain_rowtopk_fusedILi8ELi8EfEvPKT1_Pyiiii10R4dTopkOu   5.0 x   19.84 us =     99.2 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj1024EtEEvPKT1_PKvP  12.0 x    7.96 us =     95.5 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_silu_mulEPKtPtjjj                 10.0 x    8.67 us =     86.7 us/pass
+     _ZN12_GLOBAL__N_17proposeE23RadMtpCoupleProposeCall            5.0 x   13.08 us =     65.4 us/pass
+## head-r1 c1
+  -- draft pass kind 268: 80 passes, 268 dispatches, exclusive sum 3766.4 us/pass
+     _ZN12_GLOBAL__N_112r4dchain_mvmILj1ELb1EfLj1ELb1ELj0EEEvPKhP   5.0 x  313.90 us =   1569.5 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj1E8r4dcha  46.0 x   17.30 us =    796.0 us/pass
+     _ZN12_GLOBAL__N_122r4dchain_quant_act_fp8ILb1ELb1ELj2EEEvPKt  46.0 x    5.71 us =    262.5 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj1024EtEEvPKT1_PKvP  23.0 x    5.34 us =    122.8 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_copy2d16EPKDv4_jPS0_mmmm          21.0 x    4.56 us =     95.8 us/pass
+     _ZN12_GLOBAL__N_113mla_sink_rowsILi1ELb1ELb1ELb0E8r4dchainEE   5.0 x   17.15 us =     85.8 us/pass
+     _ZN12_GLOBAL__N_17proposeE23RadMtpCoupleProposeCall            5.0 x   13.63 us =     68.2 us/pass
+     _Z24r4dchain_ar_gather_2rankPK15HIP_vector_typeIiLj4EEPS0_S2   5.0 x   12.11 us =     60.5 us/pass
+     _Z22r4dchain_rowtopk_fusedILi8ELi8EfEvPKT1_Pyiiii10R4dTopkOu   5.0 x   11.52 us =     57.6 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_silu_mulEPKtPtjjj                 10.0 x    5.31 us =     53.1 us/pass
+     _ZN12_GLOBAL__N_121ar_add_rmsnorm_kernelILb1ELi0ELj1024E12R4   5.0 x    9.25 us =     46.3 us/pass
+     _ZN12_GLOBAL__N_121ar_add_rmsnorm_kernelILb1ELi1ELj1024E12R4   5.0 x    9.15 us =     45.8 us/pass
+     _Z25r4dchain_gemm_bf16_nt_m64ILi1EEvPKtS1_P14__hip_bfloat16i   5.0 x    9.14 us =     45.7 us/pass
+## head-r1 c8
+  -- draft pass kind 263: 74 passes, 263 dispatches, exclusive sum 4655.5 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_lm_wmmaILj1ELj2ELb1ELj1ELj0EEEvP   5.0 x  339.76 us =   1698.8 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj3E8r4dcha  30.0 x   25.39 us =    761.6 us/pass
+     _ZN12_GLOBAL__N_122r4dchain_quant_act_fp8ILb1ELb1ELj2EEEvPKt  46.0 x    7.75 us =    356.4 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj1E8r4dcha  16.0 x   12.54 us =    200.7 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_copy2d16EPKDv4_jPS0_mmmm          21.0 x    7.13 us =    149.8 us/pass
+     _ZN12_GLOBAL__N_113mla_sink_rowsILi1ELb1ELb1ELb0E8r4dchainEE   5.0 x   27.15 us =    135.7 us/pass
+     _ZN12_GLOBAL__N_121ar_add_rmsnorm_kernelILb1ELi1ELj512E12R4d   5.0 x   25.24 us =    126.2 us/pass
+     _ZN12_GLOBAL__N_121ar_add_rmsnorm_kernelILb1ELi0ELj512E12R4d   5.0 x   25.22 us =    126.1 us/pass
+     _Z22r4dchain_rowtopk_fusedILi8ELi8EfEvPKT1_Pyiiii10R4dTopkOu   5.0 x   19.94 us =     99.7 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj1024EtEEvPKT1_PKvP  12.0 x    7.76 us =     93.2 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_silu_mulEPKtPtjjj                 10.0 x    7.74 us =     77.4 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj512EtEEvPKT1_PKvPt  11.0 x    6.34 us =     69.7 us/pass
+     _ZN12_GLOBAL__N_17proposeE23RadMtpCoupleProposeCall            5.0 x   12.86 us =     64.3 us/pass
+## head-r2 c1
+  -- draft pass kind 268: 80 passes, 268 dispatches, exclusive sum 3813.5 us/pass
+     _ZN12_GLOBAL__N_112r4dchain_mvmILj1ELb1EfLj1ELb1ELj0EEEvPKhP   5.0 x  317.18 us =   1585.9 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj1E8r4dcha  46.0 x   17.45 us =    802.7 us/pass
+     _ZN12_GLOBAL__N_122r4dchain_quant_act_fp8ILb1ELb1ELj2EEEvPKt  46.0 x    5.87 us =    270.2 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj1024EtEEvPKT1_PKvP  23.0 x    5.28 us =    121.5 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_copy2d16EPKDv4_jPS0_mmmm          21.0 x    4.75 us =     99.7 us/pass
+     _ZN12_GLOBAL__N_113mla_sink_rowsILi1ELb1ELb1ELb0E8r4dchainEE   5.0 x   16.89 us =     84.5 us/pass
+     _ZN12_GLOBAL__N_17proposeE23RadMtpCoupleProposeCall            5.0 x   13.53 us =     67.7 us/pass
+     _Z24r4dchain_ar_gather_2rankPK15HIP_vector_typeIiLj4EEPS0_S2   5.0 x   11.93 us =     59.6 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_silu_mulEPKtPtjjj                 10.0 x    5.73 us =     57.3 us/pass
+     _Z22r4dchain_rowtopk_fusedILi8ELi8EfEvPKT1_Pyiiii10R4dTopkOu   5.0 x   11.36 us =     56.8 us/pass
+     _ZN12_GLOBAL__N_121ar_add_rmsnorm_kernelILb1ELi1ELj1024E12R4   5.0 x    9.46 us =     47.3 us/pass
+     _ZN12_GLOBAL__N_121ar_add_rmsnorm_kernelILb1ELi0ELj1024E12R4   5.0 x    9.36 us =     46.8 us/pass
+     _ZN12_GLOBAL__N_110merge_sinkI8r4dchainEEvPKfS3_PtNS_8SinkMe   5.0 x    9.09 us =     45.5 us/pass
+## head-r2 c8
+  -- draft pass kind 263: 77 passes, 263 dispatches, exclusive sum 4671.5 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_lm_wmmaILj1ELj2ELb1ELj1ELj0EEEvP   5.0 x  340.51 us =   1702.6 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj3E8r4dcha  30.0 x   25.33 us =    759.9 us/pass
+     _ZN12_GLOBAL__N_122r4dchain_quant_act_fp8ILb1ELb1ELj2EEEvPKt  46.0 x    7.77 us =    357.4 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj1E8r4dcha  16.0 x   12.67 us =    202.7 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_copy2d16EPKDv4_jPS0_mmmm          21.0 x    7.01 us =    147.3 us/pass
+     _ZN12_GLOBAL__N_113mla_sink_rowsILi1ELb1ELb1ELb0E8r4dchainEE   5.0 x   28.06 us =    140.3 us/pass
+     _ZN12_GLOBAL__N_121ar_add_rmsnorm_kernelILb1ELi0ELj512E12R4d   5.0 x   25.38 us =    126.9 us/pass
+     _ZN12_GLOBAL__N_121ar_add_rmsnorm_kernelILb1ELi1ELj512E12R4d   5.0 x   24.89 us =    124.5 us/pass
+     _Z22r4dchain_rowtopk_fusedILi8ELi8EfEvPKT1_Pyiiii10R4dTopkOu   5.0 x   20.10 us =    100.5 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj1024EtEEvPKT1_PKvP  12.0 x    7.83 us =     94.0 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_silu_mulEPKtPtjjj                 10.0 x    7.95 us =     79.5 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj512EtEEvPKT1_PKvPt  11.0 x    6.29 us =     69.2 us/pass
+     _ZN12_GLOBAL__N_17proposeE23RadMtpCoupleProposeCall            5.0 x   12.98 us =     64.9 us/pass
+## head-r3 c1
+  -- draft pass kind 268: 80 passes, 268 dispatches, exclusive sum 3761.1 us/pass
+     _ZN12_GLOBAL__N_112r4dchain_mvmILj1ELb1EfLj1ELb1ELj0EEEvPKhP   5.0 x  313.37 us =   1566.8 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj1E8r4dcha  46.0 x   17.53 us =    806.5 us/pass
+     _ZN12_GLOBAL__N_122r4dchain_quant_act_fp8ILb1ELb1ELj2EEEvPKt  46.0 x    5.53 us =    254.2 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj1024EtEEvPKT1_PKvP  23.0 x    5.22 us =    120.1 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_copy2d16EPKDv4_jPS0_mmmm          21.0 x    4.48 us =     94.1 us/pass
+     _ZN12_GLOBAL__N_113mla_sink_rowsILi1ELb1ELb1ELb0E8r4dchainEE   5.0 x   17.12 us =     85.6 us/pass
+     _ZN12_GLOBAL__N_17proposeE23RadMtpCoupleProposeCall            5.0 x   13.72 us =     68.6 us/pass
+     _Z24r4dchain_ar_gather_2rankPK15HIP_vector_typeIiLj4EEPS0_S2   5.0 x   12.28 us =     61.4 us/pass
+     _Z22r4dchain_rowtopk_fusedILi8ELi8EfEvPKT1_Pyiiii10R4dTopkOu   5.0 x   11.75 us =     58.8 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_silu_mulEPKtPtjjj                 10.0 x    5.11 us =     51.1 us/pass
+     _ZN12_GLOBAL__N_121ar_add_rmsnorm_kernelILb1ELi0ELj1024E12R4   5.0 x    9.26 us =     46.3 us/pass
+     _ZN12_GLOBAL__N_121ar_add_rmsnorm_kernelILb1ELi1ELj1024E12R4   5.0 x    9.25 us =     46.3 us/pass
+     _Z25r4dchain_gemm_bf16_nt_m64ILi1EEvPKtS1_P14__hip_bfloat16i   5.0 x    9.08 us =     45.4 us/pass
+## head-r3 c8
+  -- draft pass kind 263: 75 passes, 263 dispatches, exclusive sum 4658.5 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_lm_wmmaILj1ELj2ELb1ELj1ELj0EEEvP   5.0 x  340.10 us =   1700.5 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj3E8r4dcha  30.0 x   25.32 us =    759.6 us/pass
+     _ZN12_GLOBAL__N_122r4dchain_quant_act_fp8ILb1ELb1ELj2EEEvPKt  46.0 x    7.81 us =    359.2 us/pass
+     _ZN12_GLOBAL__N_119gemm_i8_kpar_kernelILj4ELj256ELj1E8r4dcha  16.0 x   12.74 us =    203.9 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_copy2d16EPKDv4_jPS0_mmmm          21.0 x    7.19 us =    151.1 us/pass
+     _ZN12_GLOBAL__N_113mla_sink_rowsILi1ELb1ELb1ELb0E8r4dchainEE   5.0 x   27.64 us =    138.2 us/pass
+     _ZN12_GLOBAL__N_121ar_add_rmsnorm_kernelILb1ELi0ELj512E12R4d   5.0 x   25.13 us =    125.7 us/pass
+     _ZN12_GLOBAL__N_121ar_add_rmsnorm_kernelILb1ELi1ELj512E12R4d   5.0 x   25.07 us =    125.4 us/pass
+     _Z22r4dchain_rowtopk_fusedILi8ELi8EfEvPKT1_Pyiiii10R4dTopkOu   5.0 x   18.89 us =     94.5 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj1024EtEEvPKT1_PKvP  12.0 x    7.71 us =     92.5 us/pass
+     _ZN12_GLOBAL__N_117r4dchain_silu_mulEPKtPtjjj                 10.0 x    7.79 us =     77.9 us/pass
+     _ZN12_GLOBAL__N_116r4dchain_rmsnormILb1ELj512EtEEvPKT1_PKvPt  11.0 x    6.33 us =     69.6 us/pass
+     _ZN12_GLOBAL__N_17proposeE23RadMtpCoupleProposeCall            5.0 x   12.87 us =     64.3 us/pass
+
+# probe phase rows (raw, from the probe's own json)
+base-r1.json c1 wall=2.679 gen=256 agg_tps=95.55 ttft=[0.156]
+base-r1.json c8 wall=10.031 gen=2048 agg_tps=204.16 ttft=[0.146, 0.679, 0.679, 0.679, 0.678, 0.678, 0.678, 0.678]
+base-r1.json greedy 1f74c498885e 960450a62659 db3c7d07be2c aef191ce9321
+base-r2.json c1 wall=2.461 gen=256 agg_tps=104.03 ttft=[0.157]
+base-r2.json c8 wall=10.079 gen=2048 agg_tps=203.19 ttft=[0.151, 0.638, 0.638, 0.637, 0.637, 0.637, 0.637, 0.637]
+base-r2.json greedy 1f74c498885e 960450a62659 db3c7d07be2c aef191ce9321
+base-r3.json c1 wall=3.127 gen=256 agg_tps=81.88 ttft=[0.143]
+base-r3.json c8 wall=10.075 gen=2048 agg_tps=203.28 ttft=[0.151, 0.706, 0.706, 0.706, 0.706, 0.706, 0.705, 0.705]
+base-r3.json greedy 1f74c498885e 960450a62659 db3c7d07be2c aef191ce9321
+head-r1.json c1 wall=2.462 gen=256 agg_tps=103.98 ttft=[0.163]
+head-r1.json c8 wall=10.695 gen=2048 agg_tps=191.49 ttft=[0.137, 0.679, 0.679, 0.679, 0.679, 0.678, 0.678, 0.678]
+head-r1.json greedy 1f74c498885e 960450a62659 db3c7d07be2c aef191ce9321
+head-r2.json c1 wall=2.869 gen=256 agg_tps=89.23 ttft=[0.157]
+head-r2.json c8 wall=9.474 gen=2048 agg_tps=216.16 ttft=[0.139, 0.666, 0.666, 0.666, 0.665, 0.665, 0.665, 0.665]
+head-r2.json greedy 1f74c498885e 960450a62659 db3c7d07be2c aef191ce9321
+head-r3.json c1 wall=2.682 gen=256 agg_tps=95.45 ttft=[0.16]
+head-r3.json c8 wall=9.981 gen=2048 agg_tps=205.19 ttft=[0.137, 0.638, 0.638, 0.638, 0.638, 0.638, 0.638, 0.638]
+head-r3.json greedy 1f74c498885e 960450a62659 db3c7d07be2c aef191ce9321
