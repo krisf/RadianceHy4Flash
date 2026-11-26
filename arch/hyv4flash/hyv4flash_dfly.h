@@ -339,6 +339,14 @@ struct Dfly {
          * (mla_row_norm_rope_store), and the residual add with the norm after it (add_rmsnorm). */
         rad_op op_attn_norm_q = 0, op_qa_norm_q = 0, op_ffn_norm_q = 0, op_row_q = 0,
                op_expand_q = 0, op_gated = 0, op_final_add = 0;
+        /* D-03: the fused reduction twins (ar_add_rmsnorm), each byte-identical to the launches it
+         * replaces: `op_ar_add` is the output projection's exact all-reduce with the post-norm and
+         * the residual add after it (mode 0), `op_ar_next` the MLP's exact all-reduce with its add
+         * and the norm that follows (mode 1), which is the next layer's input norm or, on the last
+         * layer, the final one (`ar_next_w` / `ar_next_out`). 0 where the chain is kept. */
+        rad_op op_ar_add = 0, op_ar_next = 0;
+        rad_weight ar_next_w = 0;
+        rad_buf ar_next_out = 0;
         bool ra = false;   /* whether q_a writes `qa_raw` (the fused q residual norm reads it) */
         rad_op op_tap_tab = 0;
         Tap t_in{}, t_qres{}, t_row{}, t_gate{}, t_oproj{}, t_out{}, t_mid{}, t_ffn_in{}, t_mlp{},
@@ -847,6 +855,19 @@ struct Dfly {
             if (d.post) d.op_post = decl_rmsnorm(b, Md, E, s.eps, d.post_norm, o, y);
             RAD_ARCH_TRY(d.t_out.declare(b, nm, Md, "dfly.attn_out", li, RAD_BF16, E, d.post ? y : o));
             d.op_add1 = add(Md, x, d.post ? y : o, x);
+            /* D-03: the exact reduction of `o` with the post-norm and the residual add in one
+             * launch (ar_add_rmsnorm mode 0), byte-identical to the three it replaces
+             * (notes/backlog/audit/C-plugin-graph.md F23). The taps read `o`, `y` and `x` between
+             * them, so a tapped run keeps the chain, and a layer without a post-norm has no norm
+             * to fuse (its pair stays). */
+            if (d.post && g.world == 2 && !taps_on() && rad_op_declared(b, "ar_add_rmsnorm")) {
+                d.op_ar_add = mk(b, "ar_add_rmsnorm",
+                                 { RAD_RANGE("M", 1, Md), RAD_INT("n", E),
+                                   RAD_INT("world_size", g.world), RAD_INT("mode", 0),
+                                   RAD_F64("eps", s.eps), RAD_STR("dtype", "bf16") },
+                                 { d.post_norm }, { o, x }, { o, x, y });
+                d.op_ar_add = optional_op(b, d.op_ar_add);
+            }
             RAD_ARCH_TRY(d.t_mid.declare(b, nm, Md, "dfly.resid_mid", li, RAD_BF16, E, x));
             d.op_ffn_norm = decl_rmsnorm(b, Md, E, s.eps, d.ffn_norm, x, xn);
             RAD_ARCH_TRY(d.t_ffn_in.declare(b, nm, Md, "dfly.ffn_in_norm", li, RAD_BF16, E, xn));
@@ -911,7 +932,7 @@ struct Dfly {
                 HY4_NEED(d.op_tap_tab, "dfly_sel");
             }
         }
-        /* E: the final norm. The last layer's residual add is folded into it where a library
+        /* D-03: the MLP's exact reduction with its residual add and the norm after it in one launch
          * serves add_rmsnorm (byte-identical to the add and the norm on both outputs, docs/OPS.md):
          * this norm feeds no quantiser, so nothing else can take it in. */
         if (!taps_on() && rad_op_declared(b, "add_rmsnorm")) {
@@ -926,7 +947,40 @@ struct Dfly {
             }
         }
         if (!op_final_add) op_final = decl_rmsnorm(b, Md, E, s.eps, out_norm, x, z);
-        HY4_NEED(op_final || op_final_add, "rmsnorm");
+        /* a layer whose mode-0 twin resolved issues neither the post-norm nor the pair's add (the
+         * needs above are already checked, as D-01 leaves them for the last layer's add) */
+        for (Layer& d : lay)
+            if (d.op_ar_add) { d.op_post = 0; d.op_add1 = 0; }
+        /* D-03: the MLP's exact reduction with its residual add and the norm after it in one launch
+         * (ar_add_rmsnorm mode 1: all_reduce -> add -> rmsnorm), byte-identical to the three. The
+         * norm after a layer's MLP is the next layer's input norm, so the fused op writes `xn` and
+         * that layer issues none; after the last layer it is the final norm, which then writes `z`.
+         * A codes norm (op_attn_norm_q) writes its readers' codes and has no fused twin yet, a tap
+         * reads `x` between the add and the norm, and the op is declared only at two ranks: any of
+         * those keeps the chain. The last layer's add lives in op_final_add (D-01) or in op_add2;
+         * mode 1 is that add and the norm, so either folds in and neither is issued again. */
+        for (int64_t i = 0; i < layers; ++i) {
+            Layer& d = lay[(size_t)i];
+            const bool last = (i + 1 == layers);
+            const bool plain = last || (lay[(size_t)i + 1].op_attn_norm != 0 &&
+                                        lay[(size_t)i + 1].op_attn_norm_q == 0);
+            if (g.world == 2 && !taps_on() && plain && rad_op_declared(b, "ar_add_rmsnorm")) {
+                d.ar_next_w = last ? out_norm : lay[(size_t)i + 1].attn_norm;
+                d.ar_next_out = last ? z : xn;
+                d.op_ar_next = mk(b, "ar_add_rmsnorm",
+                                  { RAD_RANGE("M", 1, Md), RAD_INT("n", E),
+                                    RAD_INT("world_size", g.world), RAD_INT("mode", 1),
+                                    RAD_F64("eps", s.eps), RAD_STR("dtype", "bf16") },
+                                  { d.ar_next_w }, { y, x }, { y, x, d.ar_next_out });
+                d.op_ar_next = optional_op(b, d.op_ar_next);
+            }
+            if (d.op_ar_next && last) {
+                d.op_add2 = 0;
+                op_final_add = 0;
+                op_final = 0;
+            }
+        }
+        HY4_NEED(op_final || op_final_add || (!lay.empty() && lay.back().op_ar_next), "rmsnorm");
         RAD_ARCH_TRY(t_final.declare(b, nm, Md, "dfly.final", -1, RAD_BF16, E, z));
 
         /* F: the chain, one step a proposal. */
@@ -1189,6 +1243,9 @@ struct Dfly {
         if (op_ident) RAD_ISSUE_N(c, op_ident, n * ident_w, bcol_at(ident, 0, ident_w, 0, ident_w, n));
         /* C, D */
         const int64_t half = (L + RO) / 2;
+        /* D-03: set once the previous layer's fused reduction has written `xn` (its MLP sum, the
+         * residual add and this layer's input norm in one launch), so this layer issues no norm. */
+        bool in_norm_done = false;
         for (const Layer& d : lay) {
             const Snap* sn = snap_of(d.ixl);
             RAD_ISSUE_N(c, d.op_tab, M, brow_slice(snap_sel, sn->base, snap_t, sn->width),
@@ -1200,7 +1257,9 @@ struct Dfly {
                             bcol_at(ident, 0, ident_w, 0, ident_w, n), pos, cu,
                             brows(d.tap_tab, M), brows(d.t_len.buf, M), RAD_NONE);
             }
-            if (d.op_attn_norm_q)
+            if (in_norm_done) {
+                /* the previous layer's ar_add_rmsnorm wrote xn: no norm here */
+            } else if (d.op_attn_norm_q)
                 RAD_ISSUE_N(c, d.op_attn_norm_q, M, brows(x, M), RAD_NONE, RAD_W(d.attn_norm),
                             brows(d.p_qa.lin.q8, M), brows(d.p_qa.lin.s8, M), brows(xn, M));
             else
@@ -1289,12 +1348,18 @@ struct Dfly {
                 RAD_ISSUE_N(c, d.op_gmul, M, brows(ao, M), brows(gt, M), brows(ag, M));
             }
             run(c, d.p_out, ag, o, M, xq);
-            issue_all_reduce(c, op_ar_o, o, M, E);
-            d.t_oproj.step(c, brows(o, M), M);
-            const rad_buf ab = d.post ? y : o;
-            if (d.post) RAD_ISSUE_N(c, d.op_post, M, brows(o, M), RAD_W(d.post_norm), brows(y, M));
-            d.t_out.step(c, brows(ab, M), M);
-            RAD_ISSUE_N(c, d.op_add1, M, brows(x, M), brows(ab, M), brows(x, M));
+            if (d.op_ar_add) {
+                /* D-03 mode 0: the exact reduction of o, the post-norm and the add in one launch */
+                RAD_ISSUE_N(c, d.op_ar_add, M, brows(o, M), brows(x, M), RAD_W(d.post_norm),
+                            brows(y, M));
+            } else {
+                issue_all_reduce(c, op_ar_o, o, M, E);
+                d.t_oproj.step(c, brows(o, M), M);
+                const rad_buf ab = d.post ? y : o;
+                if (d.post) RAD_ISSUE_N(c, d.op_post, M, brows(o, M), RAD_W(d.post_norm), brows(y, M));
+                d.t_out.step(c, brows(ab, M), M);
+                RAD_ISSUE_N(c, d.op_add1, M, brows(x, M), brows(ab, M), brows(x, M));
+            }
             d.t_mid.step(c, brows(x, M), M);
             if (kb->stream) kv_stage_next(c, kvg, d.kvl);
             if (d.op_ffn_norm_q)
@@ -1310,14 +1375,25 @@ struct Dfly {
             else
                 RAD_ISSUE_N(c, d.op_silu, M, brows(ffgu, M), brows(ffo, M));
             run(c, d.p_down, ffo, y, M, d.op_gated != 0);
-            issue_all_reduce(c, op_ar_y, y, M, E);
-            d.t_mlp.step(c, brows(y, M), M);
-            if (d.op_add2)   /* 0 where the last layer's add moved into the final norm (D-01) */
-                RAD_ISSUE_N(c, d.op_add2, M, brows(x, M), brows(y, M), brows(x, M));
-            d.t_resid.step(c, brows(x, M), M);
+            if (d.op_ar_next) {
+                /* D-03 mode 1: the MLP's exact reduction, its add and the norm after it (the next
+                 * layer's input norm, or the final one) in one launch */
+                RAD_ISSUE_N(c, d.op_ar_next, M, brows(y, M), brows(x, M), RAD_W(d.ar_next_w),
+                            brows(d.ar_next_out, M));
+                in_norm_done = true;
+            } else {
+                issue_all_reduce(c, op_ar_y, y, M, E);
+                d.t_mlp.step(c, brows(y, M), M);
+                if (d.op_add2)   /* 0 where the last layer's add moved into the final norm (D-01) */
+                    RAD_ISSUE_N(c, d.op_add2, M, brows(x, M), brows(y, M), brows(x, M));
+                d.t_resid.step(c, brows(x, M), M);
+                in_norm_done = false;
+            }
         }
         /* E */
-        if (op_final_add)
+        if (!lay.empty() && lay.back().op_ar_next) {
+            /* the last layer's add and the final norm ran in its fused reduction (D-03) */
+        } else if (op_final_add)
             RAD_ISSUE_N(c, op_final_add, M, brows(x, M), brows(y, M), RAD_W(out_norm), brows(z, M));
         else
             RAD_ISSUE_N(c, op_final, M, brows(x, M), RAD_W(out_norm), brows(z, M));

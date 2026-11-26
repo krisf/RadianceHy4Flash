@@ -6035,6 +6035,14 @@ static const RadConstraint cArRmsNormQuantFp8[] = {
     C_EQ("world_size", 2),
     C_P2P,
 };
+/* The exact all-reduce with the add and the norm around it: `mode` picks the order, so one row
+ * serves both chains. n whole 16B words (a block pushes its rows as words), as the standalone
+ * exact all-reduce requires. */
+static const RadConstraint cArAddRmsNorm[] = {
+    C_DIV("n", 8), C_IN("dtype", "bf16"), C_EQ("world_size", 2),
+    C_GE("mode", 0), C_LE("mode", 1),
+    C_P2P,
+};
 /* The rotated int8 twins: `n DIV 128`, since a rotation block cannot straddle the end of a row
  * (which also gives the all-reduce's 16B words). */
 static const RadConstraint cRmsNormHadQuantI8g[] = {
@@ -6604,6 +6612,16 @@ static const int64_t kArIhcNblocks[] = { 0 };
 static const RadTunable tArIhc[] = {
   { "nblocks",  kArIhcNblocks, NELEM(kArIhcNblocks), 0, "one a row: the kernel owns whole rows a block, so a smaller pin would drop rows. 0 = M" },
   { "nthreads", kArNthreads, NELEM(kArNthreads), 1024, "unused: the norm's width sets the block for bit-exactness" },
+  { "drain",    kArDrain,    NELEM(kArDrain),    3, "store-drain wait before the flag: 3 = s_wait_storecnt, 1 = vmcnt" },
+  { "acq",      kArAcq,      NELEM(kArAcq),      0, "acquire fence after the flag read" },
+};
+/* ar_add_rmsnorm's axes: tAr's, with `nthreads` 0 (rmsnorm_bf16's width for M, r4d_act_threads).
+ * Every width and every block count is bit-identical: the sums fold in kR4dSumLanes' partition at
+ * any width, and a block owns whole rows, so a tune may move both freely. */
+static const int64_t kArAddNormNthreads[] = { 0, 256, 512, 1024 };
+static const RadTunable tArAddNorm[] = {
+  { "nblocks",  kArNblocks,  NELEM(kArNblocks),  0, "blocks in the grid. 0 = one a row, clamped: the kernel owns whole rows" },
+  { "nthreads", kArAddNormNthreads, NELEM(kArAddNormNthreads), 0, "threads per block; 0 = the norm's width from M (r4d_act_threads). Any width is bit-identical" },
   { "drain",    kArDrain,    NELEM(kArDrain),    3, "store-drain wait before the flag: 3 = s_wait_storecnt, 1 = vmcnt" },
   { "acq",      kArAcq,      NELEM(kArAcq),      0, "acquire fence after the flag read" },
 };
@@ -10858,6 +10876,23 @@ R4D_WIN_TREE_PAIR(512, 4) R4D_WIN_TREE_PAIR(512, 8)
   ROW(cArRmsNormHadQuantIq8r), ROW(tAr), nullptr,
   r4d_rad_ar_ln_init, r4d_rad_ar_fini, r4d_rad_ar_rmsnorm_had_quant_i8g, nullptr, nullptr, nullptr,
   r4d_shape_ar_rmsnorm_had_quant_i8g },
+
+{ "ar_add_rmsnorm", "ar_add_rmsnorm", "norm",
+  "the two-rank exact all-reduce and the residual add and RMS norm beside it, in one kernel; the "
+  "all-reduce's output is never read back",
+  "exactly 2 ranks; n a multiple of 8 and `a` unpitched, because `a` is the message and a block "
+  "pushes its rows as 16B words; a block owns whole ROWS, so the block count is clamped to M; "
+  "exact wire only",
+  "bf16 `a` (inout, the message), bf16 `x` (inout, the stream), f32 or bf16 gain, bf16 `y`; the "
+  "reduced sum rounded to bf16 as r4d_ar_oneshot_2rank_exact stores it, the add as add_bf16 and "
+  "the norm as rmsnorm_bf16 -- byte-identical to the rows it replaces, in either order (`mode` 0 "
+  "= all_reduce -> rmsnorm -> add, 1 = all_reduce -> add -> rmsnorm)",
+  RAD_DOMAIN_DEVICE, R4D_PRIO_ONLY,
+  ROW(cArAddRmsNorm), ROW(tArAddNorm), nullptr,
+  r4d_rad_ar_ln_init, r4d_rad_ar_fini, r4d_rad_ar_add_rmsnorm, nullptr, nullptr, nullptr,
+  r4d_shape_ar_add_rmsnorm, nullptr,
+  /* `all_reduce` + `add` + `rmsnorm`, in the order `mode` gives (r4d_fuse.cpp). */
+  r4d_fuse_ar_add_rmsnorm },
 
 { "ar_rmsnorm_ihc_junction", "ar_rmsnorm_ihc_junction", "norm",
   "the two-rank exact all-reduce of a block's output and the iHC junction after it in one kernel: "

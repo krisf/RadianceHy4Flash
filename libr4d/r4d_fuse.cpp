@@ -1017,6 +1017,65 @@ extern "C" int r4d_fuse_ar_rmsnorm_quant_fp8(const RadParam* p, int n_p, uint64_
 }
 
 /* ==========================================================================================
+ * ar_add_rmsnorm -- the exact two-rank all-reduce, then the pair of elementwise ops after it.
+ * (kernel: libr4d/r4d_ar_add_rmsnorm.hip)
+ *
+ * Operands: [0] a (inout, the message)  [1] x (inout, the residual stream)  [2] w  [3] y (the norm)
+ *
+ * `mode` 0 is `all_reduce -> rmsnorm -> add` and mode 1 is `all_reduce -> add -> rmsnorm`: the same
+ * three ops, in the order the caller's layer has them (the drafter's output projection post-norms
+ * the reduced sum and folds it in; its MLP's sum is folded in and the next layer's input norm
+ * reads the stream). Every step's arithmetic is the unfused row's, so the chain the oracle runs
+ * against this op is the chain it replaces.
+ */
+extern "C" int r4d_fuse_ar_add_rmsnorm(const RadParam* p, int n_p, uint64_t present, int step,
+                                       RadFuseStep* out) {
+
+    (void)present;
+    if (!out) return RAD_E_INVAL;
+    const int64_t M = pi(p, n_p, "M"), n = pi(p, n_p, "n");
+    const int64_t world = pi(p, n_p, "world_size"), mode = pi(p, n_p, "mode", 1);
+    if (world != 2 || n <= 0 || M <= 0) return RAD_E_UNSUPPORTED;
+    /* n whole 16B words: a block pushes its rows as words. */
+    if (n % 8) return RAD_E_UNSUPPORTED;
+    if (mode != 0 && mode != 1) return RAD_E_UNSUPPORTED;
+
+    switch (step) {
+    case 0: {
+        Step s(out, "all_reduce");
+        s.mirror(p, n_p, "world_size").pint("numel", (long long)(M * n))
+         .mirror(p, n_p, "dtype").pint("exact", 1);
+        return s.wire({ 0, RAD_FUSE_NONE });        /* a (inout) */
+    }
+    /* Step 1 is the first op after the reduction: the norm (mode 0) or the add (mode 1). */
+    case 1: {
+        if (mode == 1) {
+            Step s(out, "add");
+            s.mirror(p, n_p, "M").mirror(p, n_p, "n").mirror(p, n_p, "dtype");
+            return s.wire({ 0, 1, 0 });             /* x = x + a */
+        }
+        Step s(out, "rmsnorm");
+        s.mirror(p, n_p, "M").mirror(p, n_p, "n").mirror(p, n_p, "eps").mirror(p, n_p, "dtype")
+         .mirror_opt(p, n_p, "wadd").mirror_opt(p, n_p, "mult");
+        return s.wire({ 0, 2, 3 });                 /* y = rmsnorm(a) */
+    }
+    case 2: {
+        if (mode == 1) {
+            Step s(out, "rmsnorm");
+            s.mirror(p, n_p, "M").mirror(p, n_p, "n").mirror(p, n_p, "eps")
+             .mirror(p, n_p, "dtype").mirror_opt(p, n_p, "wadd").mirror_opt(p, n_p, "mult");
+            return s.wire({ 0, 2, 3 });             /* y = rmsnorm(x) */
+        }
+        Step s(out, "add");
+        s.mirror(p, n_p, "M").mirror(p, n_p, "n").mirror(p, n_p, "dtype");
+        return s.wire({ 0, 3, 0 });                 /* x = x + y */
+    }
+    default:
+        return RAD_E_NOTFOUND;
+    }
+}
+
+/* ==========================================================================================
  * rmsnorm_ihc_junction -- [add] -> rmsnorm -> ihc_post -> [ihc_pre -> rmsnorm].
  * (kernel: libr4d/r4d_ihc_bf16.hip, ihc_junction_kernel over r4d_ihc.h's junction_row)
  *
