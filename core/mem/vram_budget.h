@@ -73,6 +73,15 @@ struct VramFacts {
     int     n_queues    = 0;
     int64_t queue_bytes = 0;
     int64_t queue_scratch = 0;   /* resident queue scratch (rad_dev_resident_scratch_bytes), once a card */
+    /* What set `queue_scratch`: the heaviest private_segment_fixed_size among the kernels the
+     * registered code objects describe, the kernel that declares it, how many kernels declare one
+     * and how many the code objects describe at all, and whether the charge came from those code
+     * objects or, on a backend that cannot read them, from the flat bound M-09 replaced. (M-09) */
+    uint32_t    scratch_private  = 0;
+    int         scratch_kernels  = 0;  /* of scratch_plan, the ones declaring a private segment */
+    int         scratch_plan     = 0;
+    bool        scratch_metadata = false;
+    std::string scratch_kernel;
     /* The next-layer expert prefetch's ring and buffers (xprefetch.h), when enabled; its stream is
      * one of `n_queues`. */
     int64_t prefetch    = 0;
@@ -116,7 +125,13 @@ struct VramBudget {
     int64_t code_bytes = 0;
     int     code_modules = 0;
     int64_t drift = 0;                /* kDriverDrift: what already_held moves by after it is read */
-    int64_t queues = 0;               /* n_queues * queue_bytes, from the rank that needs most */
+    int64_t queues = 0;               /* n_queues * queue_bytes + queue_scratch, from the rank that needs most */
+    int64_t queue_scratch = 0;        /* of queues, the resident scratch part (M-09) */
+    uint32_t scratch_private = 0;     /* the heaviest private segment in the code objects */
+    int      scratch_kernels = 0;     /* how many kernels declare one */
+    int      scratch_plan = 0;        /* how many kernels the code objects describe */
+    bool     scratch_metadata = false;/* the charge came from the code objects, not the flat bound */
+    std::string scratch_kernel;       /* the kernel that carries scratch_private */
     int64_t prefetch = 0;             /* the expert prefetch's ring and buffers */
     int     n_queues = 0;
     int64_t queue_bytes = 0;

@@ -8,6 +8,7 @@
  */
 #include "device.h"
 #include "directio.h"
+#include "queue_scratch.h"
 #include "../rad_internal.h"
 
 #include <algorithm>
@@ -909,6 +910,44 @@ int     dev_code_resident(int device, int64_t* bytes, int* modules) {
     return dev()->code_resident(device, bytes, modules);
 }
 
+/* The VRAM the runtime keeps as queue scratch on `p`'s card once kernels with a private segment
+ * (spill, or a local array: step_advance's) have been dispatched: the runtime hands a queue ONE
+ * scratch allocation at the first such dispatch and grows it when a later one asks for more, so
+ * the resident figure is the largest the plan can ask for, once a card. The kernels say what that
+ * is: their code object's `private_segment_fixed_size` (kernel_scratch_max in aql.cpp), not a flat
+ * bound over every workload. A plan whose modules declare none charges nothing; one whose heaviest
+ * declares 18 KiB charges a wave of it on every CU (queue_scratch.h).
+ *
+ * RADIANCE_QUEUE_SCRATCH_MIB adds MiB a CU on top, for a deployment whose own kernels spill more
+ * than their metadata says. It can only raise the charge.
+ *
+ * The flat bound it replaces was 5 MiB a CU (the R9700 reports 32), 160 MiB, over the 114 MiB a
+ * speculative step first showed and the 150 MiB a larger segment did. That is still the answer on
+ * a backend that cannot read code objects, and the receipt labels it. */
+RadQueueScratch rad_dev_resident_scratch_bytes(const RadDeviceProps* p, int64_t extra_mib_per_cu) {
+    RadQueueScratch out;
+    if (!p || p->is_host_backend || p->unified) return out;
+    uint32_t largest = 0;
+    int declared = 0, total = 0;
+    std::string name;
+    int rc = RAD_E_UNSUPPORTED;
+    if (dev()->kernel_scratch_max)
+        rc = dev()->kernel_scratch_max(p->device_id, &largest, &declared, &total, &name);
+    if (rc >= 0) {
+        out.largest_private = largest;
+        out.declared = declared;
+        out.total = total;
+        out.metadata = true;
+        out.kernel = std::move(name);
+        out.bytes = queue_scratch_bytes(largest, p->n_cu, p->warp_size, extra_mib_per_cu);
+        return out;
+    }
+    /* No metadata: the bound the flat term always was, and the receipt says so. */
+    const int64_t extra = std::max<int64_t>(0, std::min<int64_t>(extra_mib_per_cu, kQueueScratchMaxMibPerCu));
+    out.bytes = (int64_t)p->n_cu * (5LL * 1024 * 1024) + (int64_t)p->n_cu * extra * (1LL << 20);
+    return out;
+}
+
 }  /* namespace rad */
 
 extern "C" {
@@ -940,17 +979,6 @@ int  rad_event_sync(RadEvent e) {
     return dev()->event_sync(e);
 }
 void rad_dev_host_wrote(void)                     { dev()->host_wrote(); }
-
-/* The VRAM the runtime keeps as queue scratch on `p`'s card once kernels with a private segment
- * (spill, or a local array: step_advance's) have been dispatched: the runtime hands a queue
- * scratch memory at the first such dispatch, and the card showed +114 MiB after the first
- * speculative step and kept it, 150 MiB with a larger segment. Left out of the budget, it is
- * taken from the margin: serving ran with 27-65 MiB of a card free. 5 MiB a CU (the R9700 reports
- * 32), 160 MiB, over the measured. */
-extern "C" int64_t rad_dev_resident_scratch_bytes(const RadDeviceProps* p) {
-    if (!p || p->is_host_backend || p->unified) return 0;
-    return (int64_t)p->n_cu * (5LL * 1024 * 1024);
-}
 
 /* Whether launches chain, by engine: rad_dev_chain_infer on a thread of an engine (EngineScope)
  * records that engine's answer and rad_dev_chain_enabled on any of its threads reads it. A process
