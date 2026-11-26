@@ -425,7 +425,16 @@ public:
      * read by its forward by now, and the ones it reserved have been saved into (the engine
      * issues the save before the next step is planned); until this call they keep their slots
      * against retention, reserve_checkpoint's eviction and expiry. */
-    void begin_step() { handed_.clear(); reserved_.clear(); }
+    void begin_step() {
+        handed_.clear();
+        reserved_.clear();
+        /* X-03: a decode snapshot's slot, when no commit indexed it (the row was refused, or its
+         * request ended before the commit): the store gets it back now, before anything plans
+         * into it. */
+        for (const Pend& p : pending_)
+            if (p.slot >= 0) kv_->free_checkpoint(p.slot);
+        pending_.clear();
+    }
 
     /* ---------------- expiry ----------------
      *
@@ -470,6 +479,18 @@ public:
                             int32_t* slot_out);
     /* The state for `prefix` is now in its slot; lookup() offers it only after this (Ckpt::valid). */
     void commit_checkpoint(const BlockHash& prefix);
+
+    /* ---------------- the decode snapshot's deferred key (X-03) ----------------
+     *
+     * A rolling decode snapshot describes the position its row ends on, and that row's token is
+     * sampled by the step that writes it: the chain the snapshot is keyed by does not exist at
+     * planning time. reserve_checkpoint_slot takes the slot there, with the retention and the
+     * eviction a keyed reservation runs, and commit_checkpoint_at() indexes it once the token and
+     * the position are committed (the state copy is in the slot by then, on every rank). A slot
+     * no commit took -- the row was refused, or its request ended -- goes back to the store at the
+     * next begin_step, so a reservation never outlives the step that made it. */
+    int  reserve_checkpoint_slot(uint64_t session, int64_t pos, int32_t* slot_out);
+    int  commit_checkpoint_at(uint64_t session, int64_t pos, const BlockHash& prefix, int32_t slot);
     /* Every checkpoint of a session, ascending. */
     std::vector<int64_t> checkpoints(uint64_t session) const;
     /* Apply the retention policy to one session now, keeping also what a lookup resumed from
@@ -626,6 +647,20 @@ private:
     bool reserved(const BlockHash& h) const {
         return std::find(reserved_.begin(), reserved_.end(), h) != reserved_.end();
     }
+    /* X-03: a decode snapshot's slot, reserved at planning and not yet indexed (no key yet). The
+     * entry keeps it against eviction and retention exactly as `reserved_` does for a keyed
+     * reservation, and begin_step returns whatever no commit took. */
+    struct Pend { int32_t slot = -1; uint64_t session = 0; int64_t pos = 0; };
+    mutable std::vector<Pend> pending_;
+    bool pending_slot(int32_t slot) const {
+        for (const Pend& p : pending_)
+            if (p.slot == slot) return true;
+        return false;
+    }
+    /* A slot for a snapshot about to be written: the store's, after retention and, if that left
+     * it full, the least recently used snapshot no step holds. Shared by the keyed and the
+     * deferred reservation so both price a full store the same way. */
+    int take_ckpt_slot(int32_t* slot_out, uint64_t session, int64_t pos);
     mutable uint64_t clock_ = 0;
     std::unique_ptr<CheckpointPolicy> policy_;
     int64_t drafter_floor_ = 0;

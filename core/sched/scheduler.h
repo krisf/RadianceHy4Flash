@@ -135,6 +135,11 @@ struct SchedReq {
      * client's tokens into a re-admitted slot. */
     bool     reap_pending = false;
     int64_t  pending_ckpt = -1;  /* absolute position this step's chunk checkpoints at */
+    /* X-03: the position of this sequence's last rolling decode snapshot (0 none). A decode row
+     * whose end lands on a block boundary at least ChunkGeometry::decode_snapshot past it is the
+     * one snapshot the reply takes there (dsnap_candidate); the state it leaves is that position's
+     * linear state while every draft it verified was taken (commit_dsnap). */
+    int64_t  last_dsnap = 0;
 
     /* The checkpoint the linear state is seeded from on admission, handed to the sequence's first
      * entry as StepEntry::ckpt_restore. Never held across a step: nothing pins a checkpoint slot,
@@ -1016,6 +1021,15 @@ private:
     void close_request(SchedReq& s, ReqState st, const char* reason, bool defer_free = false,
                        bool publish = true, int status = RAD_OK, const char* why = nullptr);
     void reserve_ckpt(StepEntry& e, const Request& r, int64_t pos, int32_t tok);
+    /* X-03: the rolling decode snapshot's slot. The snapshot is the linear state at the position
+     * the row ends on, and that position's last token is the one the step samples, so the slot is
+     * taken here and keyed by Scheduler::commit_dsnap once the token is committed. */
+    void reserve_ckpt_deferred(StepEntry& e, const Request& r, int64_t pos, int32_t tok);
+    /* Whether a decode row ending at `end` is the one to snapshot (X-03): on a block boundary and
+     * at least the decode interval past the sequence's last snapshot. */
+    bool dsnap_candidate(const SchedReq& s, int64_t end) const;
+    /* Index a committed decode snapshot (the copy is in `slot`, the sequence holds `pos`). */
+    void commit_dsnap(SchedReq& s, const Request& r, int64_t pos, int32_t slot);
     /* What reap() does once nothing points at the slot: give the blocks back, forget the id,
      * destroy the Request and return the slot. Called by reap() directly, or by the sweep in
      * commit() for a request whose reap arrived while something still pointed at it. */

@@ -570,6 +570,30 @@ struct FakePC : IPrefixCache {
         *slot_out = next_slot++;
         return RAD_OK;
     }
+    /* X-03: the decode snapshot's deferred key. `dsnap_slots` is what was taken (a slot per row
+     * that landed on the grid), `dsnap_committed` what a commit indexed; a slot in the first but
+     * not the second is one the engine saved and the store never keyed, which is the case
+     * `dsnap_full` and a partial verify below produce. */
+    bool dsnap_full = false;
+    std::vector<std::pair<int64_t, int32_t>> dsnap_slots, dsnap_committed, dsnap_dropped;
+    int reserve_checkpoint_slot(const Request&, int64_t pos, int32_t* slot_out) override {
+        if (dsnap_full) return RAD_E_FULL;
+        *slot_out = next_slot++;
+        dsnap_slots.push_back({ pos, *slot_out });
+        return RAD_OK;
+    }
+    /* The real store indexes a slot only at the position it was reserved for (the chain it is keyed
+     * by is the chain to that position); a row whose drafts were cut asks for a lower one and is
+     * refused, which is what `dsnap_dropped` records. */
+    int commit_checkpoint_at(const Request&, int64_t pos, int32_t slot) override {
+        for (const auto& sp : dsnap_slots)
+            if (sp.second == slot && sp.first == pos) {
+                dsnap_committed.push_back({ pos, slot });
+                return RAD_OK;
+            }
+        dsnap_dropped.push_back({ pos, slot });
+        return RAD_E_STATE;
+    }
 };
 
 }  /* namespace sched_fake */

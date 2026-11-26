@@ -73,6 +73,15 @@ struct ChunkGeometry {
     int64_t grid = 0;
     int64_t grid_origin = 0;
 
+    /* X-03: the rolling decode snapshot's grid, in tokens: the operator's
+     * --decode-checkpoint-interval rounded up to the attention block. A decode row whose end is a
+     * block boundary at least this far past the sequence's last snapshot saves the linear state it
+     * passes (Scheduler::dsnap_candidate). Zero when it cannot be taken: no linear state (a
+     * window-only model's snapshots stay at its chunk ends, where the window behind the position
+     * is one the planner knows), no prefix cache or no interval grid to snapshot on, or the flag
+     * at 0. */
+    int64_t decode_snapshot = 0;
+
     bool checkpoints() const { return checkpoint_interval > 0; }
 
     /* The deepest grid position at or below `pos`; `pos` itself when not exact. */

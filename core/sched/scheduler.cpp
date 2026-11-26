@@ -865,6 +865,42 @@ void Scheduler::reserve_ckpt(StepEntry& e, const Request& r, int64_t pos, int32_
     ++m_.checkpoints_written;
 }
 
+/* X-03: the rolling decode snapshot's slot. The state a decode row leaves is the state at the
+ * position the row ends on, but only while every draft it verified was taken: a rejected draft
+ * leaves the recurrent state and the conv window past that position (they absorb the tokens the
+ * card verified and the host refused). So the scheduler takes the slot when it plans the row and
+ * indexes it at the commit only if the committed position is the one reserved (commit_dsnap); a
+ * row whose drafts were cut goes back at the step's end without a snapshot. The key needs the
+ * token the step samples, so only the slot can be taken here. */
+void Scheduler::reserve_ckpt_deferred(StepEntry& e, const Request& r, int64_t pos, int32_t tok) {
+    int32_t cs = -1;
+    if (kv_->has_runtime_window(r.id)) return;
+    if (pc_->reserve_checkpoint_slot(r, pos, &cs) < 0 || cs < 0) return;
+    e.ckpt_tok = tok;
+    e.ckpt_slot = cs;
+    ++m_.checkpoints_written;
+}
+
+/* Whether a decode row ending at `end` is the one to snapshot: `end` must be a position a lookup
+ * can start from (a whole number of attention blocks, since the prefix chain a hit is keyed by
+ * runs over whole blocks) and at least the decode interval past the sequence's last snapshot.
+ * Nothing is done to reach the grid -- no draft is dropped and no step is added -- so the row that
+ * lands on a block boundary at or past it is whichever row of the reply happens to; the next
+ * snapshot is then at most one interval plus the drafts of one row behind the reply's end. */
+bool Scheduler::dsnap_candidate(const SchedReq& s, int64_t end) const {
+    const int64_t G = geo_.decode_snapshot, B = geo_.attn_block;
+    if (G <= 0 || B <= 0) return false;
+    return end % B == 0 && end >= s.last_dsnap + G;
+}
+
+void Scheduler::commit_dsnap(SchedReq& s, const Request& r, int64_t pos, int32_t slot) {
+    /* The chain runs over prompt ++ output, and the output now holds the row's token, so the key
+     * covers the state the slot was copied from. A position that is not the reserved one is the
+     * row's drafts cut short: the store keeps no snapshot for it, and the next candidate row tries
+     * again. */
+    if (pc_->commit_checkpoint_at(r, pos, slot) == RAD_OK) s.last_dsnap = pos;
+}
+
 int Scheduler::fail_prefilling(const char* why) {
     std::lock_guard<std::mutex> lk(mu_);
     /* The sink keeps this pointer past the call (Sink::why_). */
@@ -2753,6 +2789,13 @@ const RadBatch* Scheduler::step() {
         /* The checkpoint is the state after the chunk's token at `ckpt`: its last, where the split
          * put the interval boundary there, or inside it for a window snapshot (plan_chunk). */
         if (ckpt > 0) reserve_ckpt(e, r, ckpt, (int32_t)(ckpt - r.n_computed - 1));
+        /* X-03: the row's end is on the decode snapshot's grid, so its state is a snapshot's. The
+         * key needs the token this step samples, so only the slot is taken here; the commit
+         * indexes it if the row's drafts were all verified (only then is the state the state of a
+         * position: a rejected draft leaves the recurrent state and the conv window past the
+         * position the row really ended on). */
+        if (!prefill && want > 0 && dsnap_candidate(s, (int64_t)r.n_computed + want))
+            reserve_ckpt_deferred(e, r, (int64_t)r.n_computed + want, (int32_t)(want - 1));
         s.entry = (int32_t)plan_.e.size();
         s.sched_tokens = (int32_t)want;
         plan_.e.push_back(e);
@@ -3858,6 +3901,12 @@ int Scheduler::commit(StepResult& res) {
             }
             if (res.token) emit(res.token[i], a);
             r.n_computed = valid;
+            /* X-03: the row that landed on the decode snapshot's grid. The engine copied the linear state
+             * into the slot after the step (save_checkpoints, at e.ctx_len + e.ckpt_tok + 1) and the
+             * output now holds the token that copy ends with, so the chain that keys it can be built.
+             * The store indexes it only if the row committed every draft it verified -- `valid` is
+             * the position it really ended on, and the slot was reserved for the planned end. */
+            if (e.ckpt_slot >= 0 && e.ckpt_tok >= 0 && pc_) commit_dsnap(s, r, valid, e.ckpt_slot);
             /* The gate's pending proposal against what this step emitted (lookup.h). */
             if (lookup_gate_on_ && s.look.started) {
                 TokenSeq ts;

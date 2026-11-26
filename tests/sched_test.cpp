@@ -621,6 +621,166 @@ TEST(prefill_chunks_split_at_the_checkpoint_interval) {
     CHECK_EQ(f.sch.plan_chunk(0, 1000, 50, &ck), 0);
 }
 
+/* X-03: a reply long enough to cross the decode interval saves the linear state it passes into a
+ * checkpoint slot, so the next turn resumes at most one interval (plus the row that lands on the
+ * grid) behind the reply's end instead of re-prefilling the whole reply. Nothing is done to reach
+ * the grid: the row that lands on a block boundary at least an interval past the last snapshot is
+ * whichever row of the reply happens to, and it keeps every draft it verified. The key needs the
+ * token the step samples, so the slot is taken at planning and the snapshot is indexed at the
+ * commit -- only if every draft the row verified was taken, since a cut draft leaves the linear
+ * state past the position the row really ended on. */
+TEST(a_reply_snapshots_its_linear_state_every_decode_interval) {
+    Fixture f;
+    f.build();
+    f.cfg.n_spec = 4;
+    f.prog.drafter.kind = RAD_DRAFT_SERIAL;
+    f.prog.drafter.depth = 4;
+    f.cfg.decode_checkpoint_interval = 256;
+    CHECK_OK(f.start());
+    CHECK_EQ(f.sch.geometry().decode_snapshot, 256ll);
+    CHECK_EQ(f.sch.geometry().attn_block, 16ll);
+
+    const uint64_t a = f.submit(160, 4000);
+    REQUIRE(f.sch.step() != nullptr);
+    f.commit_plain(11);                    /* the prompt's chunk: 160 tokens, no checkpoint */
+    int32_t draft[4] = { 21, 22, 23, 24 };
+    int64_t rows = 0, rows_with_drafts = 0, candidates = 0, last_ck = 0;
+    for (int t = 0; t < 200; ++t) {
+        const RadBatch* b = f.sch.step();
+        REQUIRE(b != nullptr);
+        const StepEntry& e = f.sch.plan().e[0];
+        const int64_t end = (int64_t)e.ctx_len + e.n_tokens;
+        if (e.n_spec > 0) ++rows_with_drafts;
+        if (e.ckpt_slot >= 0) {
+            ++candidates;
+            /* The checkpoint is the row's last token, on a block boundary and an interval past the
+             * previous one, and the batch stages it under the row's slot. The row keeps the drafts
+             * it would have verified: the grid is reached by whichever row lands on it. */
+            CHECK_EQ(e.n_spec, 4);
+            CHECK_EQ(e.ckpt_tok, e.n_tokens - 1);
+            CHECK_EQ(end % 16, 0);
+            CHECK(end >= last_ck + 256);
+            last_ck = end;
+            int found = 0;
+            for (int32_t i = 0; i < b->n_checkpoints; ++i)
+                if (b->checkpoint_slot[i] == e.ckpt_slot) {
+                    CHECK_EQ(b->checkpoint_tok[i], e.n_tokens - 1);
+                    ++found;
+                }
+            CHECK_EQ(found, 1);
+        }
+        const int32_t all = e.n_spec;      /* every draft is taken */
+        CHECK_OK(f.commit(9, 0, [all](const StepEntry&) { return all; }));
+        f.sch.step_finished();
+        CHECK_OK(f.sch.set_draft(a, draft, 4));
+        ++rows;
+    }
+    REQUIRE(f.pc.dsnap_committed.size() >= 3);
+    /* The first snapshot at the first block boundary the reply reaches past the interval, then one
+     * per interval or a little past it: the row that lands on the grid is not forced to it. */
+    CHECK_EQ(f.pc.dsnap_committed[0].first, 256ll);
+    for (size_t i = 1; i < f.pc.dsnap_committed.size(); ++i) {
+        const int64_t p = f.pc.dsnap_committed[i].first, q = f.pc.dsnap_committed[i - 1].first;
+        CHECK_EQ(p % 16, 0);
+        CHECK(p >= q + 256);
+        CHECK(p <= q + 256 + 15 * 5);      /* within the rows that can land on the grid */
+    }
+    /* Every row kept its drafts (the snapshot costs no verification) and every slot taken was
+     * indexed (every row committed all four drafts). */
+    CHECK(rows_with_drafts >= rows - 3);   /* the lookup gate may hold one proposal back */
+    CHECK_EQ(candidates, (int64_t)f.pc.dsnap_slots.size());
+    CHECK_EQ(f.pc.dsnap_slots.size(), f.pc.dsnap_committed.size());
+    CHECK_EQ(f.sch.metrics().checkpoints_written, (int64_t)f.pc.dsnap_committed.size());
+}
+
+/* The other half of the contract: a row whose drafts were cut short does not leave the linear state
+ * of its last token -- the state absorbed every token the card verified -- so its snapshot is not
+ * indexed. The scheduler asks for the position the row really ended on, the store refuses it
+ * against the one it reserved, and the next row on the grid tries again. */
+TEST(a_cut_draft_leaves_no_decode_snapshot) {
+    Fixture f;
+    f.build();
+    f.cfg.n_spec = 5;
+    f.prog.drafter.kind = RAD_DRAFT_SERIAL;
+    f.prog.drafter.depth = 5;
+    f.cfg.decode_checkpoint_interval = 256;
+    CHECK_OK(f.start());
+
+    const uint64_t a = f.submit(160, 4000);
+    REQUIRE(f.sch.step() != nullptr);
+    f.commit_plain(11);
+    int32_t draft[5] = { 21, 22, 23, 24, 25 };
+    int64_t offered = 0;
+    for (int t = 0; t < 120; ++t) {
+        REQUIRE(f.sch.step() != nullptr);
+        const StepEntry& e = f.sch.plan().e[0];
+        if (e.ckpt_slot >= 0) ++offered;
+        const int32_t cut = e.n_spec > 0 ? e.n_spec - 1 : 0;
+        CHECK_OK(f.commit(9, 0, [cut](const StepEntry&) { return cut; }));
+        f.sch.step_finished();
+        CHECK_OK(f.sch.set_draft(a, draft, 5));
+    }
+    /* Every snapshot the reply offered was refused at the store: none of them described the
+     * position the row ended on, and each one asked for a position the store had not reserved. */
+    CHECK(offered > 0);
+    CHECK(!f.pc.dsnap_slots.empty());
+    CHECK(f.pc.dsnap_committed.empty());
+    CHECK_EQ(f.pc.dsnap_dropped.size(), f.pc.dsnap_slots.size());
+}
+
+/* Where the snapshot cannot be taken at all: a model with no linear state (a window-only trunk's
+ * snapshots stay at its chunk ends), the flag at 0, and a store with no slots. */
+TEST(a_decode_snapshot_needs_linear_state_and_a_positive_interval) {
+    {
+        Fixture f;
+        f.build(/*blocks=*/4096, /*states=*/64, 512, 4096, /*windowed=*/false, /*linear=*/false);
+        CHECK_OK(f.start());
+        CHECK_EQ(f.sch.geometry().decode_snapshot, 0ll);
+    }
+    {
+        Fixture f;
+        f.build();
+        f.cfg.decode_checkpoint_interval = 0;
+        CHECK_OK(f.start());
+        CHECK_EQ(f.sch.geometry().decode_snapshot, 0ll);
+    }
+    {
+        /* The interval is rounded up to the attention block: a position between two keys is not
+         * one a lookup can start from. */
+        Fixture f;
+        f.build();
+        f.cfg.decode_checkpoint_interval = 200;
+        CHECK_OK(f.start());
+        CHECK_EQ(f.sch.geometry().decode_snapshot, 208ll);
+    }
+    {
+        /* A store that refuses every reservation leaves the reply untouched: it commits, and the
+         * scheduler asks again on the next row that lands on the grid. */
+        Fixture f;
+        f.build();
+        f.cfg.n_spec = 4;
+        f.prog.drafter.kind = RAD_DRAFT_SERIAL;
+        f.prog.drafter.depth = 4;
+        f.pc.dsnap_full = true;
+        CHECK_OK(f.start());
+        const uint64_t a = f.submit(160, 4000);
+        REQUIRE(f.sch.step() != nullptr);
+        f.commit_plain(11);
+        int32_t draft[4] = { 21, 22, 23, 24 };
+        for (int t = 0; t < 120; ++t) {
+            REQUIRE(f.sch.step() != nullptr);
+            const StepEntry& e = f.sch.plan().e[0];
+            CHECK(e.ckpt_slot < 0);
+            const int32_t all = e.n_spec;
+            CHECK_OK(f.commit(9, 0, [all](const StepEntry&) { return all; }));
+            f.sch.step_finished();
+            CHECK_OK(f.sch.set_draft(a, draft, 4));
+        }
+        CHECK(f.pc.dsnap_slots.empty());
+        CHECK(f.pc.dsnap_committed.empty());
+    }
+}
+
 /* A request's own checkpoint (Request::checkpoint_at): the end of a head other requests share, on
  * the quantum below it. It splits a chunk as the interval does and gives way to nothing. */
 TEST(prefill_chunks_split_where_the_request_asks_for_a_checkpoint) {
@@ -9508,6 +9668,10 @@ uint64_t scripted_steps(int64_t max_tok, int64_t interval, int64_t busy, int* n_
     f.build(/*blocks=*/4096, /*states=*/64, max_tok, /*max_ctx=*/8192);
     f.cfg.checkpoint_interval = interval;
     f.cfg.busy_prefill_chunk = busy;
+    /* The decode snapshot grid (X-03) is off: this pins the planner and the staging of the pre-span
+     * scheduler, and the grid would put a checkpoint on whichever decode row lands on a block
+     * boundary. Its own tests below check the arrays it stages. */
+    f.cfg.decode_checkpoint_interval = 0;
     CHECK_OK(f.start());
     struct Arrival { int at, n_prompt, max_tokens; };
     const Arrival arrivals[] = { { 0, 3000, 6 }, { 0, 200, 9 }, { 3, 1500, 4 }, { 5, 40, 20 },

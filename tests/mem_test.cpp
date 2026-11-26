@@ -2505,6 +2505,58 @@ TEST(split_lookup_reuses_attention_between_checkpoints) {
     CHECK_EQ(f.pc.lookup(other, {}).n_linear_tokens, 0);
 }
 
+/* X-03: the rolling decode snapshot. Its key is the chain through the token the step samples (the
+ * snapshot is the linear state after the row's last token), so the slot is taken when the row is
+ * planned and the entry is indexed when the row commits. Between the two a lookup skips the slot,
+ * as it skips a keyed reservation; a slot no commit took goes back to the store at the next
+ * begin_step, so a refused row leaves nothing behind. */
+TEST(a_decode_snapshot_is_indexed_at_its_commit) {
+    Fixture f;
+    CHECK_OK(f.build(/*with_linear=*/true, /*ckpt_slots=*/4));
+    std::vector<int32_t> prompt = tok_run(1, 320);
+    publish(f, 1, prompt, 320);
+    const std::vector<BlockHash> hs = chain_of(prompt);
+
+    int32_t slot = -1;
+    CHECK_OK(f.pc.reserve_checkpoint_slot(1, 256, &slot));
+    CHECK(slot >= 0);
+    /* Taken but not indexed: the reply's 256th token is the step's to sample, and the chain that
+     * keys the snapshot does not cover it yet. */
+    const CacheHit pending = f.pc.lookup(prompt, {});
+    CHECK_EQ(pending.n_linear_tokens, 0);
+    CHECK_EQ(pending.checkpoint_slot, -1);
+
+    CHECK_OK(f.pc.commit_checkpoint_at(1, 256, hs[256 / 16 - 1], slot));
+    const CacheHit hit = f.pc.lookup(prompt, {});
+    CHECK_EQ(hit.n_linear_tokens, 256);
+    CHECK_EQ(hit.checkpoint_slot, slot);
+    f.pc.begin_step();
+
+    /* A reservation a step never committed: the slot is not in the index, and the step's end
+     * gives it back, so a store of one slot can take the next one. */
+    Fixture g;
+    CHECK_OK(g.build(/*with_linear=*/true, /*ckpt_slots=*/1));
+    int32_t a = -1;
+    CHECK_OK(g.pc.reserve_checkpoint_slot(1, 16, &a));
+    int32_t b = -1;
+    CHECK_EQ(g.pc.reserve_checkpoint_slot(1, 32, &b), RAD_E_FULL);  /* the one slot is taken */
+    g.pc.begin_step();
+    CHECK_OK(g.pc.reserve_checkpoint_slot(1, 32, &b));
+    g.pc.begin_step();
+
+    /* A row that verified drafts does not commit: its state is the linear state after tokens no
+     * position describes, so the commit is refused and the slot goes back at once. */
+    int32_t c = -1;
+    CHECK_OK(g.pc.reserve_checkpoint_slot(1, 16, &c));
+    CHECK_EQ(g.pc.commit_checkpoint_at(1, 20, hs[0], c), RAD_E_STATE);
+    int32_t d = -1;
+    CHECK_OK(g.pc.reserve_checkpoint_slot(1, 32, &d));
+    g.pc.begin_step();
+
+    /* The position must be on a block boundary: the chain a lookup walks is whole blocks. */
+    CHECK_EQ(g.pc.reserve_checkpoint_slot(1, 20, &d), RAD_E_INVAL);
+}
+
 /* A capped lookup (HitCap) ends the hit at a block and the linear state at a checkpoint at or
  * below the cap, unless that gives back more than max_give_back, in which case the whole hit
  * stands. Statistics count one lookup either way. */

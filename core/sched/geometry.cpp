@@ -150,6 +150,14 @@ int chunk_geometry_resolve(const Program& prog, const Config& cfg, ChunkGeometry
         g.checkpoint_interval = 0;
     g.window_ckpt = !has_linear && g.checkpoint_interval > 0;
     g.window_periodic = g.window_ckpt && cfg.checkpoint_policy != "tip-only";
+    /* X-03: the decode snapshot grid. Rounded up to the attention block so a snapshot position is
+     * a whole number of blocks, which is what a lookup keys on; a grid below one block would land
+     * between two keys. Linear state only: a window-only model's snapshot carries the window
+     * behind its position, and a decode row's window has already slid past it when the copy is
+     * issued at the step's end (the planner's chunk-end snapshots are exact). */
+    if (has_linear && cfg.prefix_cache && g.checkpoint_interval > 0 &&
+        cfg.decode_checkpoint_interval > 0)
+        g.decode_snapshot = align_up(cfg.decode_checkpoint_interval, g.attn_block);
     /* Window checkpoints do not support skipping snapshots inside a prefill span. */
     g.span = (g.checkpoint_interval > 0 && !g.window_ckpt && cfg.prefill_span > 1)
            ? cfg.prefill_span : 1;
@@ -217,6 +225,11 @@ int chunk_geometry_resolve(const Program& prog, const Config& cfg, ChunkGeometry
              eff >= cfg.max_tok ? ""
              : g.span > 1 ? " (the checkpoint interval times the span, not the budget)"
                           : " (the checkpoint interval, not the budget)");
+    if (g.decode_snapshot > 0)
+        RAD_INFO("decode snapshots: every %lld output tokens a sequence's linear state is saved "
+                 "to a checkpoint slot (--decode-checkpoint-interval %lld), so the next turn "
+                 "re-prefills at most that far behind the previous reply's end",
+                 (long long)g.decode_snapshot, (long long)cfg.decode_checkpoint_interval);
     if (g.exact)
         RAD_INFO("prefix resume: exact -- a hit resumes only where an idle server's cold prefill "
                  "of the same prompt starts a chunk (every %lld tokens%s) and a prompt's tail "

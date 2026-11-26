@@ -1038,6 +1038,16 @@ struct Config {
      * store is opened (checkpoint_slots_auto in core/mem/prefix.h). */
     int64_t checkpoint_slots = -1;
     bool    prefix_cache = true;
+    /* --decode-checkpoint-interval N: save the sequence's linear state into a checkpoint slot during
+     * decode, at the first block-aligned position at least N output tokens past the last one, so
+     * the next turn of a conversation resumes at most N tokens plus one row behind the previous
+     * reply's end instead of re-prefilling the whole reply (X-03). Nothing is done to reach the
+     * position: a row is snapshot only when all the drafts it verified were taken (otherwise the
+     * recurrent state and the conv window stand past the position it really ended on) and its end
+     * is a whole number of blocks (what a lookup can key), which the reply's rows reach on their
+     * own -- no draft is dropped and no step is added. `prefix-cache: off`, `checkpoint-slots: 0`,
+     * a window-only model or 0 take none. */
+    int64_t decode_checkpoint_interval = 256;
     /* Engine-internal, not a flag: plan a checkpoint stage on the card (KVManager::ckpt_stage).
      * The engine sets it at startup where the plugin can cut a step at a tail snapshot and
      * --prefix-resume is nearest; a KVManager planned without it (a test, a tool) carves none. */

@@ -292,6 +292,15 @@ struct IPrefixCache {
      * later hit replays from the previous one. */
     virtual int reserve_checkpoint(const Request& r, int64_t pos, int32_t* slot_out) = 0;
 
+    /* X-03: the rolling decode snapshot's slot, whose key is not known until the row commits (the
+     * token at `pos - 1` is the one the step samples). Taken at planning, indexed at the commit,
+     * and handed back at the next begin_step when no commit indexed it. */
+    virtual int reserve_checkpoint_slot(const Request& /*r*/, int64_t /*pos*/,
+                                        int32_t* /*slot_out*/) { return RAD_E_UNSUPPORTED; }
+    virtual int commit_checkpoint_at(const Request& /*r*/, int64_t /*pos*/, int32_t /*slot*/) {
+        return RAD_E_UNSUPPORTED;
+    }
+
     /* The reserved state is now in its slot. Reservation happens at planning, before the step
      * computes the state, so lookup does not offer the slot until this is called. */
     virtual void commit_checkpoint(const Request& r, int64_t pos) = 0;
@@ -706,6 +715,15 @@ struct PCBinding final : IPrefixCache {
 
     void commit_checkpoint(const Request& r, int64_t pos) override {
         m->commit_checkpoint(prefix_hash(r, pos));
+    }
+
+    /* X-03: the same reservation without its key, and its index once the row that ends at `pos`
+     * has committed its token (so `prefix_hash(r, pos)` covers the tokens the snapshot does). */
+    int reserve_checkpoint_slot(const Request& r, int64_t pos, int32_t* slot_out) override {
+        return m->reserve_checkpoint_slot(r.id, pos, slot_out);
+    }
+    int commit_checkpoint_at(const Request& r, int64_t pos, int32_t slot) override {
+        return m->commit_checkpoint_at(r.id, pos, prefix_hash(r, pos), slot);
     }
 
 private:

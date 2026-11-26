@@ -195,6 +195,14 @@ static const Flag g_flags[] = {
     "                                    this does NOT make the engine bit-reproducible across\n"
     "                                    batch positions -- see spec §19" },
     { "--checkpoint-interval","N",      "linear-attention state checkpoint interval, in tokens" },
+    { "--decode-checkpoint-interval","N",
+    "                                    save the linear state during decode, at the first\n"
+    "                                    block-aligned position N output tokens past the last\n"
+    "                                    one, so the next turn resumes at most N tokens plus\n"
+    "                                    one row behind the previous reply's end instead of\n"
+    "                                    re-prefilling it (default 256; 0 off). Nothing is done\n"
+    "                                    to reach the position: no draft is dropped and no step\n"
+    "                                    added" },
     { "--prefill-span",       "N",      "checkpoint intervals one step may carry of a prefill alone\n"
     "                                    in its step, from the prompt's second interval on (default\n"
     "                                    1); needs --max-num-batched-tokens of N intervals. Prompts\n"
@@ -956,6 +964,7 @@ int config_parse(int argc, char** argv, Config* c) {
         }
         else if (S("--deterministic"))         c->deterministic = true;
         else if (S("--checkpoint-interval"))   { if (!num(0, INT64_MAX, &c->checkpoint_interval)) return RAD_E_INVAL; }
+        else if (S("--decode-checkpoint-interval")) { if (!num(0, INT64_MAX, &c->decode_checkpoint_interval)) return RAD_E_INVAL; }
         else if (S("--prefill-span"))          { if (!num(1, INT32_MAX, &c->prefill_span)) return RAD_E_INVAL; }
         else if (S("--prefill-span-pass")) {
             if (!(v = need(i))) return RAD_E_INVAL;
@@ -1845,6 +1854,7 @@ const ShowRow kShow[] = {
           return or_none(c.control_vector_variant, "none: no variant listed"); } },
     { "--deterministic",      [](const Config& c) { return onoff(c.deterministic); } },
     { "--checkpoint-interval", [](const Config& c) { return num(c.checkpoint_interval); } },
+    { "--decode-checkpoint-interval", [](const Config& c) { return num(c.decode_checkpoint_interval); } },
     { "--prefill-span",       [](const Config& c) { return num(c.prefill_span); } },
     { "--prefill-span-pass",  [](const Config& c) { return std::string(c.prefill_span_step ? "step" : "piece"); } },
     { "--prefill-tail-snapshot", [](const Config& c) { return onoff(c.prefill_tail_snapshot); } },

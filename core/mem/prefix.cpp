@@ -1012,6 +1012,56 @@ int64_t PrefixCache::retain(uint64_t session) {
     return freed;
 }
 
+/* A slot for a snapshot about to be written. The store's own, then the store's after the
+ * retention policy ran over every session, then the least recently used snapshot's. A snapshot
+ * handed out this step, reserved by a keyed reservation, or holding a deferred reservation's slot
+ * is never taken: each is a save target or a resume source of the step in flight. */
+int PrefixCache::take_ckpt_slot(int32_t* slot_out, uint64_t session, int64_t pos) {
+    int32_t slot = -1;
+    if (kv_->alloc_checkpoint(&slot) < 0) {
+        /* Run retention over every session. Iterate a copy of the keys: retain() erases sessions
+         * it empties. */
+        std::vector<uint64_t> sessions;
+        sessions.reserve(ck_by_session_.size());
+        for (const auto& s : ck_by_session_) sessions.push_back(s.first);
+        for (uint64_t s : sessions) retain(s);
+        if (kv_->alloc_checkpoint(&slot) < 0) {
+            /* Evict the least recently used snapshot, where a use is its reservation or a lookup
+             * resuming from it, and never one handed out or reserved this step (its admission
+             * restores from the slot ahead of the step; the save lands in it after). A tip gets
+             * no protection beyond its recency: sessions are request ids, and a client that
+             * rewrites its last message leaves one tip per turn that no later turn reaches, while
+             * the anchor every turn resumes from is used each turn. */
+            const Ckpt* victim = nullptr;
+            for (const auto& kvp : ck_by_prefix_) {
+                if (handed(kvp.first) || reserved(kvp.first)) continue;
+                if (pending_slot(kvp.second.slot)) continue;
+                if (!victim || kvp.second.used < victim->used) victim = &kvp.second;
+            }
+            if (!victim) {
+                ++stats_.ckpt_refused;
+                RAD_DEBUG("prefix cache: no snapshot at %lld for session %llu: every one of the "
+                          "%lld slots was handed out this step or awaits its save", (long long)pos,
+                          (unsigned long long)session, (long long)ck_by_prefix_.size());
+                return RAD_E_FULL;
+            }
+            RAD_DEBUG("prefix cache: store full, snapshot at %lld of session %llu (%s) evicted "
+                      "as the least recently used, unused for %.1f s", (long long)victim->pos,
+                      (unsigned long long)victim->session,
+                      is_tip(*victim) ? "its tip" : "below its tip", idle_s(victim->used_ns));
+            const BlockHash vh = victim->prefix;
+            const uint64_t vs = victim->session;
+            retire_ckpt(ck_by_prefix_.find(vh));
+            ++stats_.ckpt_evictions;
+            ++stats_.ckpt_lru;
+            unindex_ckpt(vs, vh);
+            if (kv_->alloc_checkpoint(&slot) < 0) { ++stats_.ckpt_refused; return RAD_E_FULL; }
+        }
+    }
+    *slot_out = slot;
+    return RAD_OK;
+}
+
 int PrefixCache::reserve_checkpoint(uint64_t session, int64_t pos, const BlockHash& prefix,
                                     int32_t* slot_out) {
     if (!enabled_ || !has_linear_) return RAD_E_UNSUPPORTED;
@@ -1037,45 +1087,8 @@ int PrefixCache::reserve_checkpoint(uint64_t session, int64_t pos, const BlockHa
     }
 
     int32_t slot = -1;
-    if (kv_->alloc_checkpoint(&slot) < 0) {
-        /* Run retention over every session. Iterate a copy of the keys: retain() erases sessions
-         * it empties. */
-        std::vector<uint64_t> sessions;
-        sessions.reserve(ck_by_session_.size());
-        for (const auto& s : ck_by_session_) sessions.push_back(s.first);
-        for (uint64_t s : sessions) retain(s);
-        if (kv_->alloc_checkpoint(&slot) < 0) {
-            /* Evict the least recently used snapshot, where a use is its reservation or a lookup
-             * resuming from it, and never one handed out or reserved this step (its admission
-             * restores from the slot ahead of the step; the save lands in it after). A tip gets
-             * no protection beyond its recency: sessions are request ids, and a client that
-             * rewrites its last message leaves one tip per turn that no later turn reaches, while
-             * the anchor every turn resumes from is used each turn. */
-            const Ckpt* victim = nullptr;
-            for (const auto& kvp : ck_by_prefix_) {
-                if (handed(kvp.first) || reserved(kvp.first)) continue;
-                if (!victim || kvp.second.used < victim->used) victim = &kvp.second;
-            }
-            if (!victim) {
-                ++stats_.ckpt_refused;
-                RAD_DEBUG("prefix cache: no snapshot at %lld for session %llu: every one of the "
-                          "%lld slots was handed out this step or awaits its save", (long long)pos,
-                          (unsigned long long)session, (long long)ck_by_prefix_.size());
-                return RAD_E_FULL;
-            }
-            RAD_DEBUG("prefix cache: store full, snapshot at %lld of session %llu (%s) evicted "
-                      "as the least recently used, unused for %.1f s", (long long)victim->pos,
-                      (unsigned long long)victim->session,
-                      is_tip(*victim) ? "its tip" : "below its tip", idle_s(victim->used_ns));
-            const BlockHash vh = victim->prefix;
-            const uint64_t vs = victim->session;
-            retire_ckpt(ck_by_prefix_.find(vh));
-            ++stats_.ckpt_evictions;
-            ++stats_.ckpt_lru;
-            unindex_ckpt(vs, vh);
-            if (kv_->alloc_checkpoint(&slot) < 0) { ++stats_.ckpt_refused; return RAD_E_FULL; }
-        }
-    }
+    const int trc = take_ckpt_slot(&slot, session, pos);
+    if (trc < 0) return trc;
 
     Ckpt c;
     c.session = session; c.pos = pos; c.prefix = prefix; c.slot = slot;
@@ -1102,6 +1115,76 @@ void PrefixCache::commit_checkpoint(const BlockHash& prefix) {
     it->second.valid = true;
     /* Tell the tiers (for the session view) only now that the slot holds this state. */
     if (tiers_) tiers_->note_snapshot(prefix, it->second.slot, it->second.pos);
+}
+
+/* X-03: the decode snapshot's slot, taken at planning where the position is known and the chain
+ * is not (the token at `pos - 1` is sampled by the step that writes the snapshot). The rules are
+ * the keyed reservation's, minus the index: `pos` must be on a block boundary, because the chain
+ * a lookup walks is whole blocks, and a full store is priced by retention then by the LRU. */
+int PrefixCache::reserve_checkpoint_slot(uint64_t session, int64_t pos, int32_t* slot_out) {
+    if (!enabled_ || !has_linear_) return RAD_E_UNSUPPORTED;
+    if (!slot_out) return RAD_E_INVAL;
+    if (interval_ <= 0 || pos <= 0) return RAD_E_INVAL;
+    if (pos % block_size_ != 0) {
+        /* Not a fault of the scheduler's geometry: the caller places the snapshot on a grid that
+         * is a multiple of the block. Say so rather than write a slot no lookup can find. */
+        RAD_ERR("decode snapshot at %lld is not on a %lld-token block boundary",
+                (long long)pos, (long long)block_size_);
+        return RAD_E_INVAL;
+    }
+    int32_t slot = -1;
+    const int rc = take_ckpt_slot(&slot, session, pos);
+    if (rc < 0) return rc;
+    Pend p;
+    p.slot = slot; p.session = session; p.pos = pos;
+    pending_.push_back(p);
+    *slot_out = slot;
+    return RAD_OK;
+}
+
+/* The row committed at `pos`: the state in `slot` is that position's, so the snapshot is indexed
+ * under `prefix` now. A chain another session already holds is the same state, so the copy we
+ * made goes back and the entry is touched as a use. */
+int PrefixCache::commit_checkpoint_at(uint64_t session, int64_t pos, const BlockHash& prefix,
+                                      int32_t slot) {
+    auto p = pending_.begin();
+    for (; p != pending_.end(); ++p)
+        if (p->slot == slot) break;
+    if (slot < 0 || p == pending_.end()) {
+        RAD_ERR("decode snapshot at %lld of session %llu: slot %d was not reserved this step",
+                (long long)pos, (unsigned long long)session, (int)slot);
+        return RAD_E_STATE;
+    }
+    const int64_t reserved_pos = p->pos;
+    pending_.erase(p);
+    if (pos != reserved_pos) {
+        /* The row did not end where it was planned to (a step issued ahead committed fewer tokens
+         * than it staged): the state in the slot is at another position and cannot be keyed by
+         * this one. The slot goes back to the store. */
+        RAD_DEBUG("decode snapshot of session %llu planned at %lld, committed at %lld: no "
+                  "snapshot", (unsigned long long)session, (long long)reserved_pos, (long long)pos);
+        kv_->free_checkpoint(slot);
+        return RAD_E_STATE;
+    }
+    const auto existing = ck_by_prefix_.find(prefix);
+    if (existing != ck_by_prefix_.end()) {
+        existing->second.used = ++clock_;
+        existing->second.used_ns = rad_mono_ns();
+        kv_->free_checkpoint(slot);
+        return RAD_OK;
+    }
+    Ckpt c;
+    c.session = session; c.pos = pos; c.prefix = prefix; c.slot = slot;
+    c.used = c.made = ++clock_;
+    c.used_ns = rad_mono_ns();
+    /* The copy is in the slot on every rank and the step is committed, so it is a snapshot a
+     * lookup may resume from at once: no reserved_ entry, no second commit. */
+    c.valid = true;
+    ck_by_prefix_.emplace(prefix, c);
+    ++ck_positions_[pos];
+    ck_by_session_[session].push_back(prefix);
+    if (tiers_) tiers_->note_snapshot(prefix, slot, pos);
+    return RAD_OK;
 }
 
 
