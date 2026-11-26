@@ -22,10 +22,8 @@
  * depends on the dispatch's grid, which no metadata carries; the measurement is what says the
  * floor is enough (notes/backlog/measurements/M-09.md).
  *
- * RADIANCE_QUEUE_SCRATCH_MIB is a deployment's floor on top of that, MiB a CU, default 0. It can
- * only raise the charge: the default behaviour is the metadata's, and a typo cannot lower it.
- * A value that is not a whole number in [0, 64] is refused by name instead of clamped -- a silent
- * clamp to 1 MiB a CU is a budget nobody chose.
+ * No deployment knob: the item asks for the metadata charge, so the metadata is the charge. A box
+ * whose own kernels spill more than their metadata declares is out of scope here.
  */
 #pragma once
 #include <cerrno>
@@ -35,11 +33,6 @@
 
 namespace rad {
 
-/* The most a deployment may add through RADIANCE_QUEUE_SCRATCH_MIB, MiB a CU. Above the largest
- * segment any library here declares (18,256 B, less than a MiB a CU at one wave a CU), so it is
- * room for a kernel a deployment builds itself, not a second copy of the old flat bound. */
-static const int64_t kQueueScratchMaxMibPerCu = 64;
-
 /* ROCr's alignment for a private segment: `AlignUp(private_segment_size, 1024 / lanes_per_wave)`
  * (aql_queue.cpp). 1 when `wave` is not a sane lane count, so the arithmetic cannot divide by 0. */
 inline uint32_t queue_scratch_align(int wave) {
@@ -48,20 +41,21 @@ inline uint32_t queue_scratch_align(int wave) {
 }
 
 /* The charge in bytes for one card. `largest_private` is the largest private_segment_fixed_size
- * among the kernels the plan launches, `n_cu` the card's compute units, `wave` its lanes a wave.
- * `extra_mib_per_cu` is RADIANCE_QUEUE_SCRATCH_MIB, 0 by default. */
-inline int64_t queue_scratch_bytes(uint32_t largest_private, int n_cu, int wave,
-                                   int64_t extra_mib_per_cu) {
+ * among the kernels the plan launches, `n_cu` the card's compute units, `wave` its lanes a wave. */
+inline int64_t queue_scratch_bytes(uint32_t largest_private, int n_cu, int wave) {
     if (n_cu <= 0) return 0;
     const uint32_t a = queue_scratch_align(wave);
     int64_t per_thread = (int64_t)largest_private;
     if (per_thread > 0) per_thread = (per_thread + a - 1) / a * a;
-    if (extra_mib_per_cu < 0) extra_mib_per_cu = 0;
-    if (extra_mib_per_cu > kQueueScratchMaxMibPerCu) extra_mib_per_cu = kQueueScratchMaxMibPerCu;
     const int64_t lanes = wave > 0 && wave <= 1024 ? wave : 1;
-    /* The knob is MiB a CU, as the bound it succeeds was (5 MiB a CU): a deployment's own floor
-     * on the card, not another per-work-item segment. */
-    return per_thread * lanes * (int64_t)n_cu + extra_mib_per_cu * (1LL << 20) * (int64_t)n_cu;
+    return per_thread * lanes * (int64_t)n_cu;
+}
+
+/* The bound for a backend that cannot read code objects: what the term always was, 5 MiB a CU.
+ * Split out so the fallback branch of rad_dev_resident_scratch_bytes has an answer with a test. */
+inline int64_t queue_scratch_flat_bytes(int n_cu) {
+    if (n_cu <= 0) return 0;
+    return (int64_t)n_cu * (5LL * 1024 * 1024);
 }
 
 /* One kernel's private segment, folded into the scan's running answer. `private_size` 0 means the
@@ -86,30 +80,6 @@ inline void queue_scratch_take(ScratchScan* s, const std::string& name, uint32_t
         if (s->kernel.size() > 3 && s->kernel.compare(s->kernel.size() - 3, 3, ".kd") == 0)
             s->kernel.resize(s->kernel.size() - 3);
     }
-}
-
-/* Parses one RADIANCE_QUEUE_SCRATCH_MIB value. `value` null or empty means unset: 0, no error.
- * Anything else must be a whole decimal number in [0, kQueueScratchMaxMibPerCu]; outside it, or
- * with a trailing character, `*why` names the variable and the value and the answer is false. */
-inline bool queue_scratch_knob(const char* value, int64_t* mib_per_cu, std::string* why) {
-    if (mib_per_cu) *mib_per_cu = 0;
-    if (!value || !*value) return true;
-    const char* p = value;
-    if (*p == '+' || *p == '-') ++p;              /* a sign is read, so "-1" is refused by value */
-    if (!*p) { if (why) *why = std::string("RADIANCE_QUEUE_SCRATCH_MIB=\"") + value +
-                               "\" is not a number of MiB a CU (0.." +
-                               std::to_string((long long)kQueueScratchMaxMibPerCu) + ")"; return false; }
-    errno = 0;
-    char* end = nullptr;
-    const long long v = std::strtoll(value, &end, 10);
-    if (errno != 0 || end == value || (end && *end) || v < 0 || v > kQueueScratchMaxMibPerCu) {
-        if (why) *why = std::string("RADIANCE_QUEUE_SCRATCH_MIB=\"") + value +
-                        "\" is not a number of MiB a CU (0.." +
-                        std::to_string((long long)kQueueScratchMaxMibPerCu) + ")";
-        return false;
-    }
-    if (mib_per_cu) *mib_per_cu = (int64_t)v;
-    return true;
 }
 
 }  /* namespace rad */
