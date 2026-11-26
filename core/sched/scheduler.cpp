@@ -3448,6 +3448,13 @@ const RadBatch* Scheduler::step_next_locked() {
         n.is_prefill     = false;
         n.produces_token = true;
         n.dev            = true;
+        /* X-03: the row issued ahead is the position this reply's decode passes next, and it is
+         * built here, not in step(): a hook only in step()'s decode branch leaves every row of a
+         * pipelined decode unsnapshotted (the engine issues ahead whenever it can, so that is
+         * most of them). Same deferred reservation as there -- the slot now, the key at the
+         * commit, and only when every draft the row verified was taken. */
+        if (dsnap_candidate(s, ctx_up + want))
+            reserve_ckpt_deferred(n, r, ctx_up + want, (int32_t)(want - 1));
         plan_next_.e.push_back(n);
         plan_next_.n_tok += want;
         if (d > plan_next_.n_spec) plan_next_.n_spec = d;

@@ -16,7 +16,10 @@ longctx.md measured as N8 48K, where the stager overflows its ring -- longctx-pr
 the JSON), and lctxN (N sessions of RAD_LCTX_CHARS characters -- 190,000 is the 58,903-token
 conversation of notes/backlog/CARDS.md §1.3, so the default is a 60K session -- filled by a one-token
 wave and then decoded for RAD_LCTX_NTOK tokens: the long-context decode stamps of T-03, at one
-decoder as `lctx1` and at four as `lctx4`, with `lctxN-pre` / `lctxN-decode` in the JSON), and stress (issue #251: RAD_STRESS_WAVES waves
+decoder as `lctx1` and at four as `lctx4`, with `lctxN-pre` / `lctxN-decode` in the JSON), longresumeN
+(X-03: a ~N-character first turn answered with RAD_RESUME_REPLY tokens, then the same conversation with
+the reply and ~RAD_RESUME_NEW new tokens: each turn's prompt, prefix hits, tokens actually prefilled and
+its text's sha256, so a resumed and a cold arm compare byte for byte), and stress (issue #251: RAD_STRESS_WAVES waves
 of eight requests at once, RAD_STRESS_CHARS characters of context and RAD_STRESS_NTOK tokens each, a
 fresh wave and then the same prompts again; failed requests and a server that stops are counted, not
 raised: `ok` / `err` / `server_dead`). The token
@@ -378,6 +381,77 @@ def resume(chars, extra=900, turns=3, ntok=4):
     print(json.dumps(o), flush=True); time.sleep(2)
     return o
 
+def longresume(chars, n1=1024, n2=64, runs=3):
+    """X-03 (issue #130): the next turn of an agentic conversation, after a long reply. Turn 1 is a
+    ~`chars`-character code prompt answered with `n1` output tokens (greedy, ignore_eos), so the
+    reply builds the decode rows a rolling decode snapshot is for; turn 2 is the same conversation
+    -- that prompt, the reply as the assistant turn and ~`n2` tokens of new user text -- which the
+    prefix cache can resume past the reply only where the first turn left a checkpoint: without a
+    decode snapshot that is the prompt's end, so the whole reply is prefilled again. Per turn:
+    prompt tokens, the ones the prefix cache covered, the ones the engine actually computed
+    (`radiance:prefill_tokens_total`), the checkpoints written, TTFT, decode speed and the sha256
+    of the text; turn 2's hash is what a resumed arm and a cold arm compare, byte for byte.
+    `runs` repeats the conversation with a fresh prompt each time (the same seeds in every arm)."""
+    def chat(msgs, n):
+        SEED[0] += 1
+        body = {"model": "hy4-flash", "messages": msgs, "max_tokens": n, "temperature": 0.0,
+                "top_p": 1.0, "seed": SEED[0], "reasoning_effort": "none", "stream": True,
+                "stream_options": {"include_usage": True}, "ignore_eos": True}
+        req = urllib.request.Request(BASE + "/v1/chat/completions", json.dumps(body).encode(),
+                                     {"Content-Type": "application/json"})
+        t0 = time.time(); tf = None; gen = pt = 0; text = []
+        with urllib.request.urlopen(req, timeout=3600) as r:
+            for raw in r:
+                ln = raw.decode(errors="replace").strip()
+                if not ln.startswith("data:"): continue
+                d = ln[5:].strip()
+                if d == "[DONE]": break
+                ev = json.loads(d)
+                if ev.get("usage"):
+                    gen = ev["usage"].get("completion_tokens", 0); pt = ev["usage"].get("prompt_tokens", 0)
+                for ch in ev.get("choices", []):
+                    c = ch.get("delta", {}).get("content") or ""
+                    if c:
+                        text.append(c)
+                        if tf is None: tf = time.time()
+        t1 = time.time()
+        return {"gen": gen, "prompt": pt, "ttft": (tf or t1) - t0,
+                "dec": (gen - 1) / (t1 - tf) if tf and gen > 1 else 0, "t1": t1,
+                "text": "".join(text)}
+    def turn(msgs, n, name):
+        m0 = metrics(); r = chat(msgs, n); m1 = metrics()
+        d = lambda k: int(m1.get(k, 0) - m0.get(k, 0))
+        o = {"name": name, "gen": r["gen"], "prompt": r["prompt"],
+             "hit_tokens": d("vllm:prefix_cache_hits_total"),
+             "prompt_tokens_metric": d("vllm:prompt_tokens_total"),
+             "prefill_tokens": d("radiance:prefill_tokens_total"),
+             "decode_tokens": d("radiance:decode_tokens_total"),
+             "checkpoints_written": d("radiance:linear_checkpoints_written_total"),
+             "decode_steps": d("radiance:engine_steps_decode_total"),
+             "ttft": round(r["ttft"], 3), "dec_tps": round(r["dec"], 2),
+             "chars": len(r["text"]), "sha256": hashlib.sha256(r["text"].encode()).hexdigest()}
+        print(json.dumps({k: v for k, v in o.items() if k != "sha256"} | {"sha256": o["sha256"][:16]}), flush=True)
+        return o, r["text"]
+    new = ("Continue from the code you just wrote. Add a --verbose flag, a --seed option and a test "
+           "that runs the program twice with the same seed and checks that the output is identical. "
+           "Show only the changed parts, then explain in one short paragraph why the test is worth "
+           "keeping and what could still make it flaky on a machine with a different clock.")
+    out = []
+    for i in range(runs):
+        p1 = long_prompt(chars, 130 + 100 * i)
+        t1o, reply = turn([{"role": "user", "content": p1}], n1, f"longresume{chars}-r{i}-turn1")
+        t2o, _ = turn([{"role": "user", "content": p1}, {"role": "assistant", "content": reply},
+                       {"role": "user", "content": new}], n2, f"longresume{chars}-r{i}-turn2")
+        out.append({"run": i, "turn1": t1o, "turn2": t2o})
+    o = {"name": "longresume", "chars": chars, "reply_tokens": n1, "new_tokens": n2, "runs": out}
+    print(json.dumps({"name": "longresume", "prompt1": [x["turn1"]["prompt"] for x in out],
+                      "turn2_prompt": [x["turn2"]["prompt"] for x in out],
+                      "turn2_hit": [x["turn2"]["hit_tokens"] for x in out],
+                      "turn2_prefill": [x["turn2"]["prefill_tokens"] for x in out],
+                      "turn2_sha256": [x["turn2"]["sha256"] for x in out],
+                      "turn1_tps": [x["turn1"]["dec_tps"] for x in out]}), flush=True)
+    return o
+
 def longctx(chars=140000, n=8, ntok=128):
     # Eight sessions arrive and fill. One prompt each, built once, so both waves carry the same
     # strings -- what a prefix-cache hit needs (at 46K they can still be evicted: check the log's
@@ -474,6 +548,10 @@ for ph in PH:
     elif ph == "pf6c": R["phases"].append(phase("pf6c", [long_prompt(22000, 7, stamp=True)], 2))
     elif ph.startswith("resume"):  # resumeN: a ~N-character session, then N-row turns resumed
         record(resume(int(ph[6:]), int(os.environ.get("RAD_RESUME_EXTRA", 900))))
+    elif ph.startswith("longresume"):  # X-03 (#130): a long reply, then the conversation's next turn
+        R["phases"].append(longresume(int(ph[10:]), int(os.environ.get("RAD_RESUME_REPLY", 1024)),
+                                      int(os.environ.get("RAD_RESUME_NEW", 64)),
+                                      int(os.environ.get("RAD_RESUME_RUNS", 3))))
     elif ph == "idle": record(idle(int(os.environ.get("RAD_IDLE_CHARS", 72000))))
     elif ph == "nowarm": pass  # read above: no warmup requests
     elif ph == "stress":  # issue #251: RAD_STRESS_WAVES waves of eight ~12K-token requests
@@ -482,5 +560,5 @@ for ph in PH:
     elif ph.startswith("live"): R["phases"].append(live(int(ph[4:])))
     elif ph == "long8": record(long8(int(os.environ.get("RAD_LONG8_CHARS", 140000))))
     else: sys.exit(f"probe.py: no phase '{ph}'; phases: c1 c1b c1s c2 c4 c8 c8s think pf2 pf6 pf6c pf8 pf20 "
-                  "greedy longctx lctxN stall1 stall4 arr60 tailN idle liveN long8 resumeN stress nowarm")
+                  "greedy longctx lctxN stall1 stall4 arr60 tailN idle liveN long8 resumeN longresumeN stress nowarm")
 json.dump(R, open(OUT, "w"), indent=1)
