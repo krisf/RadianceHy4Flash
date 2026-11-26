@@ -1026,7 +1026,8 @@ extern "C" int r4d_fuse_ar_rmsnorm_quant_fp8(const RadParam* p, int n_p, uint64_
  * three ops, in the order the caller's layer has them (the drafter's output projection post-norms
  * the reduced sum and folds it in; its MLP's sum is folded in and the next layer's input norm
  * reads the stream). Every step's arithmetic is the unfused row's, so the chain the oracle runs
- * against this op is the chain it replaces.
+ * against this op is the chain it replaces. The chain writes `a` only in its first step (the
+ * reduction's own store); both elementwise steps write `x` and `y`, as the kernel does, never `a`.
  */
 extern "C" int r4d_fuse_ar_add_rmsnorm(const RadParam* p, int n_p, uint64_t present, int step,
                                        RadFuseStep* out) {
@@ -1052,7 +1053,7 @@ extern "C" int r4d_fuse_ar_add_rmsnorm(const RadParam* p, int n_p, uint64_t pres
         if (mode == 1) {
             Step s(out, "add");
             s.mirror(p, n_p, "M").mirror(p, n_p, "n").mirror(p, n_p, "dtype");
-            return s.wire({ 0, 1, 0 });             /* x = x + a */
+            return s.wire({ 1, 0, 1 });            /* x = x + a */
         }
         Step s(out, "rmsnorm");
         s.mirror(p, n_p, "M").mirror(p, n_p, "n").mirror(p, n_p, "eps").mirror(p, n_p, "dtype")
@@ -1064,11 +1065,11 @@ extern "C" int r4d_fuse_ar_add_rmsnorm(const RadParam* p, int n_p, uint64_t pres
             Step s(out, "rmsnorm");
             s.mirror(p, n_p, "M").mirror(p, n_p, "n").mirror(p, n_p, "eps")
              .mirror(p, n_p, "dtype").mirror_opt(p, n_p, "wadd").mirror_opt(p, n_p, "mult");
-            return s.wire({ 0, 2, 3 });             /* y = rmsnorm(x) */
+            return s.wire({ 1, 2, 3 });             /* y = rmsnorm(x) */
         }
         Step s(out, "add");
         s.mirror(p, n_p, "M").mirror(p, n_p, "n").mirror(p, n_p, "dtype");
-        return s.wire({ 0, 3, 0 });                 /* x = x + y */
+        return s.wire({ 1, 3, 1 });                 /* x = x + y */
     }
     default:
         return RAD_E_NOTFOUND;

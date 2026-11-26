@@ -1565,7 +1565,16 @@ static int rad_ar_add_rmsnorm(const RadArgs* a, RadStream s) {
     const RadTensor* y  = r4d_opt(a, AN_Y);
     if (!aa || !x || !w || !y) return RAD_E_INVAL;
     if (aa->dtype != RAD_BF16 || x->dtype != RAD_BF16 || y->dtype != RAD_BF16) return RAD_E_DTYPE;
-    if (w->dtype != RAD_F32 && w->dtype != RAD_BF16) return RAD_E_DTYPE;
+    /* Gain dtype comes from the operand, as in rmsnorm_bf16's shim -- and the geometry names it:
+     * r4d_shape_ar_add_rmsnorm describes `w` f32 unless `w_dtype` says bf16, so a bf16 buffer has
+     * to be declared or the description and the launch would disagree. */
+    const char* wd = r4d_gets(a, "w_dtype");
+    uint32_t w_ok = (uint32_t)RAD_F32;
+    if (wd) {
+        w_ok = rad_dtype_parse(wd);
+        if (w_ok != (uint32_t)RAD_F32 && w_ok != (uint32_t)RAD_BF16) return RAD_E_INVAL;
+    }
+    if (w->dtype != w_ok) return RAD_E_DTYPE;
     if (!r4d_contig(w)) return RAD_E_STRIDE;
     if (aa->rank != 2 || x->rank != 2 || y->rank != 2) return RAD_E_SHAPE;
     const long long M = aa->shape[0], K = aa->shape[1];

@@ -1825,6 +1825,7 @@ static const RadParamSpec pArAddRmsNorm[] = {
     { "mode",       RAD_P_INT, RAD_REQUIRED },
     P_F64("eps"),
     { "dtype",      RAD_P_STR, RAD_REQUIRED },
+    P_STRO("w_dtype"),
     P_F64O("wadd"),
     P_F64O("mult"),
 };
