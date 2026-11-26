@@ -1,0 +1,205 @@
+# M-09 (#121) raw lines
+# Produced by the run itself: boot plan/receipt lines, probe phase rows (the probe's own JSON),
+# and the VRAM sampler. Nothing here is derived.
+# Run 1: phases c1, c8, greedy (a prefill phase in the same boot halves c1 and breaks parity,
+#        so prefill ran in its own boots -- run 2).
+
+# Every line below was printed by the run itself: the boot's plan/receipt, the probe's
+# phase rows (its own JSON), and the VRAM sampler's samples. Nothing here is derived.
+
+## base-r1
+W activation arena: no level for 256-token steps on rank 0 -- the sizing declare failed: invalid argument
+W activation arena: no level for 1024-token steps on rank 0 -- the sizing declare failed: invalid argument
+  hardware queues    266.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+  claimable           29.22 GiB
+I[0] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I[1] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I                                          hardware queues    266.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+I                                          claimable           29.22 GiB
+I[0] device code resident at exit: 43.28 MiB in 32 code module(s), each loaded whole
+I[1] device code resident at exit: 43.28 MiB in 32 code module(s), each loaded whole
+vram_used_samples_MiB: [32226, 32231, 32310, 32310, 32310, 32310, 32310, 32310, 32310, 32310, 32310, 32310, 32310, 32310, 32310, 32310, 32314, 32314, 32316, 32316, 32318, 32318, 32320, 32320, 32320, 32320, 32320, 32320, 32320, 32320, 32320, 32320, 32320, 32320, 32320, 32320, 32320, 32320]
+probe c1: clients=1 wall=2.681 gen=256 agg_tps=95.49 ttft=[0.148]
+probe c8: clients=8 wall=9.829 gen=2048 agg_tps=208.37 ttft=[0.14, 0.704, 0.704, 0.704, 0.704, 0.704, 0.704, 0.704]
+probe greedy: 1f74c498885ed31a 960450a6265979d7 db3c7d07be2c0e36 aef191ce9321c7f3
+
+## base-r2
+W activation arena: no level for 256-token steps on rank 0 -- the sizing declare failed: invalid argument
+W activation arena: no level for 1024-token steps on rank 0 -- the sizing declare failed: invalid argument
+  hardware queues    266.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+  claimable           29.22 GiB
+I[0] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I[1] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I                                          hardware queues    266.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+I                                          claimable           29.22 GiB
+I[0] device code resident at exit: 43.28 MiB in 32 code module(s), each loaded whole
+I[1] device code resident at exit: 43.28 MiB in 32 code module(s), each loaded whole
+vram_used_samples_MiB: [32214, 32227, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32313, 32313, 32317, 32317, 32319, 32319, 32319, 32319, 32321, 32321, 32321, 32321, 32321, 32321, 32321, 32321, 32321, 32321, 32322, 32322, 32322, 32322]
+probe c1: clients=1 wall=3.003 gen=256 agg_tps=85.26 ttft=[0.182]
+probe c8: clients=8 wall=10.253 gen=2048 agg_tps=199.74 ttft=[0.144, 0.716, 0.716, 0.716, 0.716, 0.716, 0.715, 0.715]
+probe greedy: 1f74c498885ed31a 960450a6265979d7 db3c7d07be2c0e36 aef191ce9321c7f3
+
+## base-r3
+W activation arena: no level for 256-token steps on rank 0 -- the sizing declare failed: invalid argument
+W activation arena: no level for 1024-token steps on rank 0 -- the sizing declare failed: invalid argument
+  hardware queues    266.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+  claimable           29.22 GiB
+I[0] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I[1] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I                                          hardware queues    266.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+I                                          claimable           29.22 GiB
+I[0] device code resident at exit: 43.28 MiB in 32 code module(s), each loaded whole
+I[1] device code resident at exit: 43.28 MiB in 32 code module(s), each loaded whole
+vram_used_samples_MiB: [32211, 32212, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32309, 32315, 32315, 32317, 32317, 32319, 32319, 32319, 32319, 32319, 32319, 32319, 32319, 32319, 32319, 32319, 32319, 32319, 32319, 32320, 32320]
+probe c1: clients=1 wall=2.395 gen=256 agg_tps=106.88 ttft=[0.165]
+probe c8: clients=8 wall=10.037 gen=2048 agg_tps=204.05 ttft=[0.234, 0.234, 0.771, 0.771, 0.77, 0.77, 0.77, 0.77]
+probe greedy: 1f74c498885ed31a 960450a6265979d7 db3c7d07be2c0e36 aef191ce9321c7f3
+
+## head-r1
+W activation arena: no level for 256-token steps on rank 0 -- the sizing declare failed: invalid argument
+W activation arena: no level for 1024-token steps on rank 0 -- the sizing declare failed: invalid argument
+  hardware queues    106.12 MiB   3 a card at 35.38 MiB each, measured: the engine's streams
+  queue scratch       17.84 MiB   906 of the 9190 kernels the code objects describe declare a private
+  claimable           29.36 GiB
+I[0] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I[1] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I                                          hardware queues    106.12 MiB   3 a card at 35.38 MiB each, measured: the engine's streams
+I                                          queue scratch       17.84 MiB   906 of the 9190 kernels the code objects describe declare a private
+I                                          claimable           29.36 GiB
+I[0] device code resident at exit: 42.68 MiB in 33 code module(s), each loaded whole
+I[1] device code resident at exit: 42.68 MiB in 33 code module(s), each loaded whole
+vram_used_samples_MiB: [32384, 32373, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32455, 32455, 32457, 32457, 32459, 32459, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461]
+probe c1: clients=1 wall=3.116 gen=256 agg_tps=82.15 ttft=[0.172]
+probe c8: clients=8 wall=9.816 gen=2048 agg_tps=208.63 ttft=[0.249, 0.249, 0.794, 0.794, 0.794, 0.794, 0.794, 0.794]
+probe greedy: 1f74c498885ed31a 960450a6265979d7 db3c7d07be2c0e36 aef191ce9321c7f3
+
+## head-r2
+W activation arena: no level for 256-token steps on rank 0 -- the sizing declare failed: invalid argument
+W activation arena: no level for 1024-token steps on rank 0 -- the sizing declare failed: invalid argument
+  hardware queues    106.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+  queue scratch       17.84 MiB   906 of the 9190 kernels the code objects describe declare a private
+  claimable           29.36 GiB
+I[0] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I[1] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I                                          hardware queues    106.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+I                                          queue scratch       17.84 MiB   906 of the 9190 kernels the code objects describe declare a private
+I                                          claimable           29.36 GiB
+I[0] device code resident at exit: 42.68 MiB in 33 code module(s), each loaded whole
+I[1] device code resident at exit: 42.68 MiB in 33 code module(s), each loaded whole
+vram_used_samples_MiB: [32354, 32354, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32455, 32455, 32457, 32457, 32457, 32457, 32459, 32459, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461]
+probe c1: clients=1 wall=2.803 gen=256 agg_tps=91.33 ttft=[0.168]
+probe c8: clients=8 wall=9.706 gen=2048 agg_tps=211.01 ttft=[0.136, 0.687, 0.687, 0.687, 0.687, 0.686, 0.686, 0.686]
+probe greedy: 1f74c498885ed31a 960450a6265979d7 db3c7d07be2c0e36 aef191ce9321c7f3
+
+## head-r3
+W activation arena: no level for 256-token steps on rank 0 -- the sizing declare failed: invalid argument
+W activation arena: no level for 1024-token steps on rank 0 -- the sizing declare failed: invalid argument
+  hardware queues    106.12 MiB   3 a card at 35.38 MiB each, measured: the engine's streams
+  queue scratch       17.84 MiB   906 of the 9190 kernels the code objects describe declare a private
+  claimable           29.36 GiB
+I[0] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I[1] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I                                          hardware queues    106.12 MiB   3 a card at 35.38 MiB each, measured: the engine's streams
+I                                          queue scratch       17.84 MiB   906 of the 9190 kernels the code objects describe declare a private
+I                                          claimable           29.36 GiB
+I[0] device code resident at exit: 42.68 MiB in 33 code module(s), each loaded whole
+I[1] device code resident at exit: 42.68 MiB in 33 code module(s), each loaded whole
+vram_used_samples_MiB: [32354, 32354, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32451, 32457, 32457, 32459, 32459, 32459, 32459, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461, 32461]
+probe c1: clients=1 wall=2.961 gen=256 agg_tps=86.45 ttft=[0.17]
+probe c8: clients=8 wall=9.100 gen=2048 agg_tps=225.05 ttft=[0.139, 0.676, 0.676, 0.676, 0.676, 0.676, 0.676, 0.675]
+probe greedy: 1f74c498885ed31a 960450a6265979d7 db3c7d07be2c0e36 aef191ce9321c7f3
+
+#
+# Run 2: prefill only (pf20, 23029 prompt tokens)
+
+
+## base-r1
+W activation arena: no level for 256-token steps on rank 0 -- the sizing declare failed: invalid argument
+W activation arena: no level for 1024-token steps on rank 0 -- the sizing declare failed: invalid argument
+  hardware queues    266.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+  claimable           29.22 GiB
+I[0] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I[1] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I                                          hardware queues    266.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+I                                          claimable           29.22 GiB
+I[0] device code resident at exit: 43.28 MiB in 32 code module(s), each loaded whole
+I[1] device code resident at exit: 43.28 MiB in 32 code module(s), each loaded whole
+vram_used_samples_MiB: [32222, 32222, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301]
+probe pf20: clients=1 wall=25.573 gen=2 agg_tps=0.08 ttft=[24.589]
+
+## base-r2
+W activation arena: no level for 256-token steps on rank 0 -- the sizing declare failed: invalid argument
+W activation arena: no level for 1024-token steps on rank 0 -- the sizing declare failed: invalid argument
+  hardware queues    266.10 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+  claimable           29.22 GiB
+I[0] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I[1] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I                                          hardware queues    266.10 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+I                                          claimable           29.22 GiB
+I[0] device code resident at exit: 43.28 MiB in 32 code module(s), each loaded whole
+I[1] device code resident at exit: 43.28 MiB in 32 code module(s), each loaded whole
+vram_used_samples_MiB: [32229, 32222, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301]
+probe pf20: clients=1 wall=10.279 gen=2 agg_tps=0.19 ttft=[10.264]
+
+## base-r3
+W activation arena: no level for 256-token steps on rank 0 -- the sizing declare failed: invalid argument
+W activation arena: no level for 1024-token steps on rank 0 -- the sizing declare failed: invalid argument
+  hardware queues    266.09 MiB   3 a card at 35.36 MiB each, measured: the engine's streams
+  claimable           29.22 GiB
+I[0] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I[1] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I                                          hardware queues    266.09 MiB   3 a card at 35.36 MiB each, measured: the engine's streams
+I                                          claimable           29.22 GiB
+I[0] device code resident at exit: 43.28 MiB in 32 code module(s), each loaded whole
+I[1] device code resident at exit: 43.28 MiB in 32 code module(s), each loaded whole
+vram_used_samples_MiB: [32218, 32222, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301, 32301]
+probe pf20: clients=1 wall=10.254 gen=2 agg_tps=0.20 ttft=[10.238]
+
+## head-r1
+W activation arena: no level for 256-token steps on rank 0 -- the sizing declare failed: invalid argument
+W activation arena: no level for 1024-token steps on rank 0 -- the sizing declare failed: invalid argument
+  hardware queues    106.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+  queue scratch       17.84 MiB   906 of the 9190 kernels the code objects describe declare a private
+  claimable           29.36 GiB
+I[0] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I[1] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I                                          hardware queues    106.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+I                                          queue scratch       17.84 MiB   906 of the 9190 kernels the code objects describe declare a private
+I                                          claimable           29.36 GiB
+I[0] device code resident at exit: 42.68 MiB in 33 code module(s), each loaded whole
+I[1] device code resident at exit: 42.68 MiB in 33 code module(s), each loaded whole
+vram_used_samples_MiB: [32371, 32376, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442]
+probe pf20: clients=1 wall=10.039 gen=2 agg_tps=0.20 ttft=[10.026]
+
+## head-r2
+W activation arena: no level for 256-token steps on rank 0 -- the sizing declare failed: invalid argument
+W activation arena: no level for 1024-token steps on rank 0 -- the sizing declare failed: invalid argument
+  hardware queues    106.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+  queue scratch       17.84 MiB   906 of the 9190 kernels the code objects describe declare a private
+  claimable           29.36 GiB
+I[0] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I[1] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I                                          hardware queues    106.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+I                                          queue scratch       17.84 MiB   906 of the 9190 kernels the code objects describe declare a private
+I                                          claimable           29.36 GiB
+I[0] device code resident at exit: 42.68 MiB in 33 code module(s), each loaded whole
+I[1] device code resident at exit: 42.68 MiB in 33 code module(s), each loaded whole
+vram_used_samples_MiB: [32345, 32345, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442]
+probe pf20: clients=1 wall=11.927 gen=2 agg_tps=0.17 ttft=[11.911]
+
+## head-r3
+W activation arena: no level for 256-token steps on rank 0 -- the sizing declare failed: invalid argument
+W activation arena: no level for 1024-token steps on rank 0 -- the sizing declare failed: invalid argument
+  hardware queues    106.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+  queue scratch       17.84 MiB   906 of the 9190 kernels the code objects describe declare a private
+  claimable           29.36 GiB
+I[0] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I[1] arena: 1.77 GiB device + 41.13 MiB scratch + 0 B for the second lane = 1.81 GiB, charged to the VRAM budget before it was split
+I                                          hardware queues    106.11 MiB   3 a card at 35.37 MiB each, measured: the engine's streams
+I                                          queue scratch       17.84 MiB   906 of the 9190 kernels the code objects describe declare a private
+I                                          claimable           29.36 GiB
+I[0] device code resident at exit: 42.68 MiB in 33 code module(s), each loaded whole
+I[1] device code resident at exit: 42.68 MiB in 33 code module(s), each loaded whole
+vram_used_samples_MiB: [32376, 32376, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442, 32442]
+probe pf20: clients=1 wall=10.069 gen=2 agg_tps=0.20 ttft=[10.055]
+
