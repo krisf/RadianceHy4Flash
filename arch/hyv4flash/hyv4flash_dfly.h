@@ -932,7 +932,7 @@ struct Dfly {
                 HY4_NEED(d.op_tap_tab, "dfly_sel");
             }
         }
-        /* D-03: the MLP's exact reduction with its residual add and the norm after it in one launch
+        /* E: the final norm. The last layer's residual add is folded into it where a library
          * serves add_rmsnorm (byte-identical to the add and the norm on both outputs, docs/OPS.md):
          * this norm feeds no quantiser, so nothing else can take it in. */
         if (!taps_on() && rad_op_declared(b, "add_rmsnorm")) {
