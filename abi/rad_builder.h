@@ -895,11 +895,6 @@ int rad_chain_on(void);
 /* ---- appended in ABI 27 (a block drafter's short block) */
 int rad_drafter_short_block(RadBuilder* b, int64_t block);
 
-/* A block drafter that keeps no cache of its own: its context pass issues nothing, so the engine
- * drops the pass and the two barrier rounds it costs (kernels/dfly2.md §3.5 point 2). Refused
- * unless a BLOCK drafter is declared and it is not a tree. Called once, after rad_declare_drafter. */
-int rad_drafter_no_context_pass(RadBuilder* b);
-
 /* ================================================================== the encoder */
 /* A media encoder the plugin runs on an encoder pass (RadBatch::enc). The core drives the pass and
  * reads its result, so the plugin declares it. A plugin that declares none serves text only, and

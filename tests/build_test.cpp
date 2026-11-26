@@ -1293,51 +1293,6 @@ TEST(a_head_that_keeps_no_cache_of_its_own_is_a_serial_one) {
     }
 }
 
-/* rad_drafter_no_context_pass applies only to a declared block drafter that is not a tree; both
- * are refused at declare, and the accepted one sets the flag the engine reads to drop the pass. */
-TEST(a_block_head_with_no_context_pass_declares_it) {
-    Registry reg;
-    {
-        Builder b(reg, make_meta(), make_ctx());
-        CHECK_EQ(rad_drafter_no_context_pass(&b), RAD_E_STATE);   /* nothing declared */
-        CHECK(!b.program().drafter_no_context);
-    }
-    {
-        Builder b(reg, make_meta(), make_ctx());
-        RadDrafterDecl d{};
-        d.kind = RAD_DRAFT_SERIAL; d.name = "mtp"; d.depth = 4;
-        CHECK_OK(rad_declare_drafter(&b, &d));
-        CHECK_EQ(rad_drafter_no_context_pass(&b), RAD_E_STATE);   /* a serial head */
-        CHECK(!b.program().drafter_no_context);
-    }
-    {
-        Builder b(reg, make_meta(), make_ctx());
-        RadBufDecl bd{};
-        bd.dtype = RAD_I32; bd.rank = 2; bd.shape[0] = 256; bd.shape[1] = 4;
-        const rad_buf prop = rad_decl_buffer(&b, "prop", &bd);
-        RadDrafterDecl d{};
-        d.kind = RAD_DRAFT_BLOCK; d.name = "df"; d.depth = 4; d.mask_token = 5;
-        d.proposal = prop; d.proposal_pitch = 4;
-        CHECK_OK(rad_declare_drafter(&b, &d));
-        CHECK_OK(rad_drafter_no_context_pass(&b));
-        CHECK(b.program().drafter_no_context);
-    }
-    {
-        Builder b(reg, make_meta(), make_ctx());
-        RadBufDecl bd{};
-        bd.dtype = RAD_I32; bd.rank = 2; bd.shape[0] = 256; bd.shape[1] = 15;
-        const rad_buf prop = rad_decl_buffer(&b, "prop", &bd);
-        const rad_buf par = rad_decl_buffer(&b, "par", &bd);
-        RadDrafterDecl d{};
-        d.kind = RAD_DRAFT_BLOCK; d.name = "df"; d.depth = 15; d.block = 16; d.mask_token = 5;
-        d.proposal = prop; d.proposal_pitch = 15;
-        CHECK_OK(rad_declare_drafter(&b, &d));
-        CHECK_OK(rad_drafter_tree(&b, par));
-        CHECK_EQ(rad_drafter_no_context_pass(&b), RAD_E_STATE);   /* a tree's path stages context */
-        CHECK(!b.program().drafter_no_context);
-    }
-}
-
 /* ================================================================== the enum name tables
  *
  * These names appear in --debug-graph and the Model view, where an operator reads what a plugin

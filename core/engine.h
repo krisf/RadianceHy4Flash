@@ -849,9 +849,6 @@ private:
      * the context pass by that path. */
     bool    tree_ = false;
     rad_buf tree_parents_ = 0;
-    /* A block drafter with no context pass (rad_drafter_no_context_pass): the core drops the
-     * context block_pass, which the arch's step() would have run empty for two barrier rounds. */
-    bool    no_context_ = false;
     int     tree_compact(int rows);
     int  issue_block_drafter(int step, StepOut& so);
     int  finish_block_drafter(const StepOut& so);
