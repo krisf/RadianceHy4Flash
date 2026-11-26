@@ -481,21 +481,28 @@ bool init_devices() {
 
 /* ------------------------------------------------------------------ code object loading */
 
-const KernelMeta* module_meta(Module* m, const std::vector<std::string>& isas,
-                              const ModuleImage** img, const std::string& sym, std::string* why) {
-    /* Keyed by the card's preferred target with its modes, which is what decides the choice. */
+/* The code object this module holds for the card's preferred target, parsed once: metadata for
+ * every kernel it describes, whether or not any of them has been launched. */
+ModuleImage* module_image(Module* m, const std::vector<std::string>& isas) {
     ModuleImage& im = m->image[isas.front()];
     if (!im.parsed) {
         im.parsed = true;
-        if (!bundle_code_object(m->bundle, isas, &im.co, &im.size, &im.err)) return nullptr;
+        if (!bundle_code_object(m->bundle, isas, &im.co, &im.size, &im.err)) return &im;
         std::vector<KernelMeta> ks;
-        if (!code_object_kernels(im.co, im.size, &ks, &im.err)) { im.co = nullptr; return nullptr; }
+        if (!code_object_kernels(im.co, im.size, &ks, &im.err)) { im.co = nullptr; return &im; }
         for (KernelMeta& k : ks) im.meta.emplace(k.symbol, std::move(k));
     }
-    *img = &im;
-    if (!im.co) { *why = im.err; return nullptr; }
-    auto it = im.meta.find(sym);
-    if (it == im.meta.end()) { *why = "the code object has no metadata for " + sym; return nullptr; }
+    return &im;
+}
+
+const KernelMeta* module_meta(Module* m, const std::vector<std::string>& isas,
+                              const ModuleImage** img, const std::string& sym, std::string* why) {
+    /* Keyed by the card's preferred target with its modes, which is what decides the choice. */
+    ModuleImage* i = module_image(m, isas);
+    *img = i;
+    if (!i->co) { *why = i->err; return nullptr; }
+    auto it = i->meta.find(sym);
+    if (it == i->meta.end()) { *why = "the code object has no metadata for " + sym; return nullptr; }
     return &it->second;
 }
 
@@ -5093,6 +5100,50 @@ int a_code_resident(int device, int64_t* bytes, int* modules) {
     return RAD_OK;
 }
 
+/* The heaviest private segment among the kernels the registered code objects describe, read from
+ * their AMDGPU metadata on the host: nothing is loaded and nothing runs, so this answers at the
+ * plan, before any dispatch. A module loads whole at its first kernel, so the kernels of a
+ * registered module are the ones a program can launch; `declared`/`total` say how many of them
+ * declare a private segment and how many the code objects describe at all. */
+int a_kernel_scratch_max(int device, uint32_t* largest, int* declared, int* total, std::string* name) {
+    if (device < 0 || (size_t)device >= G().dev.size()) return RAD_E_INVAL;
+    if (largest) *largest = 0;
+    if (declared) *declared = 0;
+    if (total) *total = 0;
+    if (name) name->clear();
+    std::vector<Module*> ms;
+    {
+        Registry& r = reg();
+        std::lock_guard<std::mutex> lk(r.mu);
+        ms = r.order;
+    }
+    const std::vector<std::string>& isas = G().dev[(size_t)device].isas;
+    uint32_t best = 0;
+    std::string best_name;
+    int n = 0, pos = 0;
+    for (Module* m : ms) {
+        std::lock_guard<std::mutex> lk(m->mu);
+        const ModuleImage* im = module_image(m, isas);
+        if (!im->co) continue;
+        for (const auto& kv : im->meta) {
+            ++n;
+            if (kv.second.private_size == 0) continue;
+            ++pos;
+            if (kv.second.private_size > best) {
+                best = kv.second.private_size;
+                best_name = kv.first;
+                if (best_name.size() > 3 && best_name.compare(best_name.size() - 3, 3, ".kd") == 0)
+                    best_name.resize(best_name.size() - 3);
+            }
+        }
+    }
+    if (largest) *largest = best;
+    if (declared) *declared = pos;
+    if (total) *total = n;
+    if (name) *name = std::move(best_name);
+    return RAD_OK;
+}
+
 DeviceBackend g_aql;
 
 }  // namespace
@@ -5248,6 +5299,7 @@ const DeviceBackend* aql_backend_if_present(void) {
         g_aql.code_mark = a_code_mark;
         g_aql.code_runs = a_code_runs;
         g_aql.code_resident = a_code_resident;
+        g_aql.kernel_scratch_max = a_kernel_scratch_max;
         g_aql.tape_set_overlap = a_tape_set_overlap;
         g_aql.tape_destroy = a_tape_destroy;
         g_aql.stream_gate = a_stream_gate;

@@ -16,6 +16,7 @@
 #include "mem/kvtier.h"
 #include "mem/pcstore.h"
 #include "device/device.h"
+#include "device/queue_scratch.h"
 #include "plugin/registry.h"
 #include "runtime/tierexec.h"
 #include "sched/mem_iface.h"
@@ -718,6 +719,92 @@ TEST(resident_queue_scratch_is_charged_with_the_hardware_queues) {
     vram_budget_need({ f }, &need1, &want1);
     CHECK_EQ(need1 - need0, 160LL << 20);
     CHECK_EQ(want1 - want0, 160LL << 20);
+}
+
+/* RADIANCE_QUEUE_SCRATCH_MIB is a floor on the metadata charge, and it is checked: the review of
+ * #278 found the first version took a non-numeric string through strtoll as 0 and clamped it to
+ * 1 MiB a CU, so a typo set a charge nobody chose. Unset is 0 -- the kernels' own answer -- 0..64
+ * parses, and everything else is refused by name instead of clamped. */
+TEST(queue_scratch_knob_refuses_a_value_it_cannot_use) {
+    int64_t mib = -1;
+    std::string why;
+    CHECK(queue_scratch_knob(nullptr, &mib, &why));
+    CHECK_EQ(mib, 0);
+    CHECK(queue_scratch_knob("", &mib, &why));
+    CHECK_EQ(mib, 0);
+    CHECK(queue_scratch_knob("0", &mib, &why));
+    CHECK_EQ(mib, 0);
+    CHECK(queue_scratch_knob("8", &mib, &why));
+    CHECK_EQ(mib, 8);
+    CHECK(queue_scratch_knob("64", &mib, &why));
+    CHECK_EQ(mib, 64);
+    for (const char* bad : {"65", "-1", "abc", "8x", "0x10", " ", "999999999999999999999"}) {
+        mib = -1;
+        why.clear();
+        CHECK(!queue_scratch_knob(bad, &mib, &why));
+        CHECK_EQ(mib, 0);
+        CHECK(why.find("RADIANCE_QUEUE_SCRATCH_MIB") != std::string::npos);
+    }
+    /* And it can never lower the charge: a negative or absurd value adds nothing, it does not
+     * become a smaller floor. */
+    CHECK_EQ(queue_scratch_bytes(0, 64, 32, -8), 0);
+    CHECK_EQ(queue_scratch_bytes(0, 64, 32, 1000),
+             64LL * kQueueScratchMaxMibPerCu * (1LL << 20));
+}
+
+/* The queue scratch is the plan's heaviest private segment once a card, and 0 when nothing the
+ * plan launches declares one -- the answer the flat 5 MiB a CU never asked the kernels for. The
+ * heaviest segment any library here declares is 18,256 B (spechub's couple_verify_wide), so at a
+ * wave of 32 lanes on 64 CUs the charge is 18,272 * 32 * 64 = 37,421,056 B, against the 160 MiB
+ * the flat bound charged for every plan. */
+TEST(queue_scratch_is_charged_from_the_kernels_private_segments) {
+    CHECK_EQ(queue_scratch_align(32), 32u);
+    CHECK_EQ(queue_scratch_align(64), 16u);
+    CHECK_EQ(queue_scratch_align(1), 1024u);
+    CHECK_EQ(queue_scratch_align(0), 1u);              /* never a divide by zero */
+
+    CHECK_EQ(queue_scratch_bytes(0, 64, 32, 0), 0);    /* no private segment: nothing resident */
+    CHECK_EQ(queue_scratch_bytes(44, 64, 32, 0), 64LL * 32 * 64);   /* 44 -> 64, one wave a CU */
+    CHECK_EQ(queue_scratch_bytes(18256, 64, 32, 0), 18272LL * 32 * 64);
+    CHECK_EQ(queue_scratch_bytes(18256, 64, 32, 1),
+             18272LL * 32 * 64 + (1LL << 20) * 64);    /* the knob is MiB a CU */
+    CHECK_EQ(queue_scratch_bytes(18256, 0, 32, 0), 0);
+
+    /* The receipt names what set it, so a lane reads the charge off the plan's own block. */
+    Config c = small_config();
+    c.vram_weights_mib = 0;
+    c.vram_kv_mib      = 0;
+    c.gpu_headroom_mib = 96;
+    VramFacts f{};
+    f.capacity = 32LL << 30;
+    f.free     = f.capacity - (512LL << 20);
+    f.arena    = 144LL << 20;
+    f.statics  = 2LL << 30;
+    f.experts  = 200LL << 30;
+    f.kv_ceiling = 100LL << 30;
+    f.n_queues = 2; f.queue_bytes = 33LL << 20;
+    f.queue_scratch    = queue_scratch_bytes(18256, 64, 32, 0);
+    f.scratch_private  = 18256;
+    f.scratch_kernels  = 1;
+    f.scratch_plan     = 47;
+    f.scratch_metadata = true;
+    f.scratch_kernel   = "couple_verify_wide";
+    VramBudget b;
+    CHECK_OK(vram_budget_resolve(c, { f }, &b));
+    CHECK_EQ(b.queues, (66LL << 20) + f.queue_scratch);
+    CHECK_EQ(b.queue_scratch, f.queue_scratch);
+    CHECK(b.report.find("queue scratch") != std::string::npos);
+    CHECK(b.report.find("1 of the 47 kernels the code objects describe") != std::string::npos);
+    CHECK(b.report.find("18256 B (couple_verify_wide)") != std::string::npos);
+
+    /* A plan that declares none says that too, rather than looking like a missing term. */
+    VramFacts g = f;
+    g.queue_scratch = 0; g.scratch_private = 0; g.scratch_kernels = 0;
+    Config c2 = c;
+    VramBudget b2;
+    CHECK_OK(vram_budget_resolve(c2, { g }, &b2));
+    CHECK_EQ(b2.queues, 66LL << 20);
+    CHECK(b2.report.find("none of the 47 kernels the code objects describe declares a private segment") != std::string::npos);
 }
 
 /* What of "already held" is device code: the code objects resident on the card, each one loaded
