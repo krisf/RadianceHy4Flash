@@ -1597,6 +1597,12 @@ extern "C" int r4d_shape_ar_add_rmsnorm(const RadParam* p, int n_p, int operand,
     const uint32_t W = dt_par(p, n_p, "w_dtype");
     const uint32_t wdt = W == (uint32_t)RAD_DT_INVALID ? (uint32_t)RAD_F32 : W;
     if (wdt != (uint32_t)RAD_F32 && wdt != (uint32_t)RAD_BF16) return RAD_E_UNSUPPORTED;
+    /* `wire` 6 is the coded push: whole 256-value waves, and two ranks (the slot layout is the
+     * two-rank one). A row that asks for it and does not fit is refused here, where the graph is
+     * built, rather than at the launch. */
+    const int64_t w6 = pi(p, n_p, "wire", 0);
+    if (w6 != 0 && w6 != 6) return RAD_E_INVAL;
+    if (w6 == 6 && (n % 256 || pi(p, n_p, "world_size") != 2)) return RAD_E_UNSUPPORTED;
     const RadOpdDesc l[] = {
         opd((uint32_t)RAD_BF16, M, n),
         opd((uint32_t)RAD_BF16, M, n),

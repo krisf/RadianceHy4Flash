@@ -1828,6 +1828,7 @@ static const RadParamSpec pArAddRmsNorm[] = {
     P_STRO("w_dtype"),
     P_F64O("wadd"),
     P_F64O("mult"),
+    { "wire",       RAD_P_INT, RAD_OPTIONAL },   /* 0 exact (default), 6 coded */
 };
 static const RadOperandSpec oArAddRmsNorm[] = {
     { "a", RAD_OPD_INOUT,  0 },   /* the message and the input; receives the reduced sum */
@@ -4449,7 +4450,8 @@ static const RadOpSchema kSchemas[] = {
     SCHEMA("ar_add_rmsnorm", pArAddRmsNorm, oArAddRmsNorm,
            "the exact two-rank all-reduce of `a` and the residual add and RMS norm beside it, in "
            "one kernel; `mode` 0 is all_reduce -> rmsnorm -> add, 1 is all_reduce -> add -> "
-           "rmsnorm, and the reduced sum lands in `a` as the standalone all-reduce stores it."),
+           "rmsnorm, and the reduced sum lands in `a` as the standalone all-reduce stores it. `wire` 0 "
+           "exact, 6 coded (whole 256-value waves, a P2P instance, the slot sized for it)."),
     SCHEMA("ar_hc_write", pArHcWrite, oArHcWrite,
            "the all-reduce and the gated residual's write that follows it, in one kernel. Both "
            "wires at two ranks, the exact one at four."),

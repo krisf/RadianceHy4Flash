@@ -902,7 +902,7 @@ int  r4d_ar_add_rmsnorm(long peer_scratch, long my_scratch, long peer_flags, lon
                         long seq_ctrs, long slot_stride16, long a, long x, long w, long y,
                         int M, int n, float eps, float wadd, float mult, int w_f32,
                         int x_ld, int y_ld, long stream, int nblocks, int nthreads, int drain,
-                        int acq, int mode, long stage = 0);
+                        int acq, int mode, long stage = 0, long wire = 0);
 // Its rotated int8 form, as r4d_rmsnorm_had_quant_i8g: the reduction and the norm unchanged, the
 // norm's pass quantised by had_quant_act_i8g's rule. No post-norm. `group` is the scale group, 128
 // or IQ8R's 256 (`s` [M][n/group]). `chain` launches the chained form (r4d_chain.h) where the

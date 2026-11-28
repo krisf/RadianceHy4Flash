@@ -864,7 +864,8 @@ struct Dfly {
                 d.op_ar_add = mk(b, "ar_add_rmsnorm",
                                  { RAD_RANGE("M", 1, Md), RAD_INT("n", E),
                                    RAD_INT("world_size", g.world), RAD_INT("mode", 0),
-                                   RAD_F64("eps", s.eps), RAD_STR("dtype", "bf16") },
+                                   RAD_F64("eps", s.eps), RAD_STR("dtype", "bf16"),
+                                   RAD_INT("wire", E % 256 ? 0 : 6) },
                                  { d.post_norm }, { o, x }, { o, x, y });
                 d.op_ar_add = optional_op(b, d.op_ar_add);
             }
@@ -970,7 +971,8 @@ struct Dfly {
                 d.op_ar_next = mk(b, "ar_add_rmsnorm",
                                   { RAD_RANGE("M", 1, Md), RAD_INT("n", E),
                                     RAD_INT("world_size", g.world), RAD_INT("mode", 1),
-                                    RAD_F64("eps", s.eps), RAD_STR("dtype", "bf16") },
+                                    RAD_F64("eps", s.eps), RAD_STR("dtype", "bf16"),
+                                    RAD_INT("wire", E % 256 ? 0 : 6) },
                                   { d.ar_next_w }, { y, x }, { y, x, d.ar_next_out });
                 d.op_ar_next = optional_op(b, d.op_ar_next);
             }

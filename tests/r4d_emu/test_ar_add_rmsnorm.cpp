@@ -197,10 +197,15 @@ int main() {
         std::vector<int4> s(64);
         std::vector<unsigned int> f(64), c(64);
         float g[8] = { 1, 1, 1, 1, 1, 1, 1, 1 };
-        struct Bad { const char* what; int mode, M, n; int want; } bad[] = {
-            { "n not whole 16B words", 0, 1, 12, -5 },
-            { "mode 2", 2, 1, 8, -3 },
-            { "no rows", 0, 0, 8, -2 },
+        struct Bad { const char* what; int mode, M, n; int want; long wire; } bad[] = {
+            { "n not whole 16B words", 0, 1, 12, -5, 0 },
+            { "mode 2", 2, 1, 8, -3, 0 },
+            { "no rows", 0, 0, 8, -2, 0 },
+            /* wire 6 needs a P2P slot sized for the coded image; this instance is a host box, so
+             * the row refuses rather than falling back to exact. A wire it does not know refuses
+             * the same way. */
+            { "coded on a host instance", 0, 1, 256, -7, 6 },
+            { "wire 1", 0, 1, 256, -7, 1 },
         };
         for (const Bad& b : bad) {
             const int rc = r4d_ar_add_rmsnorm((long)(uintptr_t)s.data(), (long)(uintptr_t)s.data(),
@@ -208,7 +213,7 @@ int main() {
                                               (long)(uintptr_t)c.data(), 8, (long)(uintptr_t)a.data(),
                                               (long)(uintptr_t)x.data(), (long)(uintptr_t)g,
                                               (long)(uintptr_t)y.data(), b.M, b.n, 1e-6f, 0.f, 1.f,
-                                              1, 0, 0, 0, 1, 256, 3, 0, b.mode, 0);
+                                              1, 0, 0, 0, 1, 256, 3, 0, b.mode, 0, b.wire);
             if (rc != b.want) { std::printf("ar_add_rmsnorm %s: refused %d, wanted %d\n", b.what, rc, b.want); ++fails; }
         }
         const int rc = r4d_ar_add_rmsnorm((long)(uintptr_t)s.data(), (long)(uintptr_t)s.data(),

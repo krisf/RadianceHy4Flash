@@ -1612,11 +1612,17 @@ static int rad_ar_add_rmsnorm(const RadArgs* a, RadStream s) {
     if (nblocks > in->max_blocks) nblocks = in->max_blocks;
     if (nblocks < 1) nblocks = 1;
 
+    /* `wire`: 0 exact, 6 the coded push. The kernel refuses 6 when the message is not whole
+     * 256-value waves, the instance is not P2P's, or the coded image does not fit the slot. */
+    long long wire = 0;
+    if (!r4d_geti(a, "wire", &wire) || (wire != 0 && wire != 6)) return RAD_E_INVAL;
+
     const int e = r4d_ar_add_rmsnorm(
         in->peer_scratch[0], in->my_scratch, in->peer_flags[0], in->my_flags, in->my_seq,
         in->slot16, r4d_addr(aa), r4d_addr(x), r4d_addr(w), r4d_addr(y),
         (int)M, (int)K, eps, wadd, mult, w_f32, (int)xp, (int)yp,
-        (long)(uintptr_t)s, nblocks, nthreads, cfgv.drain, cfgv.acq, (int)mode, in->my_stage);
+        (long)(uintptr_t)s, nblocks, nthreads, cfgv.drain, cfgv.acq, (int)mode, in->my_stage,
+        (long)wire);
     return e == 0 ? RAD_OK : RAD_E_SHAPE;
 }
 

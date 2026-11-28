@@ -29,6 +29,24 @@
 // Returns a negative code rather than throwing, as the other fused all-reduces do.
 #include "r4d.h"
 #include "r4d_ar_seq.h"   // the handshake, the push check and the device-resident sequence
+/* The coded push's slot layout is device code; the host pass (tests/r4d_emu) has no
+ * shuffles and no make_int4, and the coded path is guarded out of it below. */
+#if defined(__HIP_DEVICE_COMPILE__)
+#include "r4d_ar_arc2.h"
+#endif
+
+namespace {
+/* Whether a message of n16 chunks fits the coded form in a slot of slot_stride16 words: whole
+ * 32-chunk waves, a P2P instance (`stage` 0), and the coded image (16.125 bytes a chunk) inside the
+ * slot. The same rule r4d_ar_coded2_ok applies (r4d_ar_oneshot_2rank_exact.hip); repeated here
+ * because that symbol is not in the host build of this file, and the launcher has to refuse on the
+ * host pass too. */
+bool arar_coded_ok(long n16, long slot_stride16, long stage) {
+    if (stage != 0 || n16 <= 0 || (n16 & 31L)) return false;
+    const long spill = (12L * n16 + n16 / 8L + 15L) & ~15L;
+    return spill + 4L * n16 <= slot_stride16 * 16L;
+}
+}  // namespace
 #include "r4d_chain.h"    // R4dUnchained / the chained form
 #include "r4d_common.h"   // r4d_act_threads, kR4dSumLanes, r4d_lanes_sumsq, f32_to_bf16
 #include <hip/hip_runtime.h>
@@ -87,10 +105,13 @@ __global__ __launch_bounds__(THR) void ar_add_rmsnorm_kernel(
     uint16_t* __restrict__ y, int4* peer_base, const int4* my_base, unsigned int* peer_flags,
     unsigned int* my_flags, unsigned int* seq_ctrs, int M, uint32_t n, float eps, float wadd,
     float mult, uint32_t x_ld, uint32_t y_ld, int slot_stride16, int drain, int acq,
-    unsigned int nbw, long stage) {
+    unsigned int nbw, long stage, int coded) {
     if (CH::on) r4d_chain_wait();
     __shared__ float lds[THR / kWave];
     __shared__ unsigned int s_seq, s_slot;
+#if defined(__HIP_DEVICE_COMPILE__)
+    extern __shared__ uint8_t arar_stage[];   // coded: one decoded row (n bf16)
+#endif
     const int b = (int)blockIdx.x, nb = (int)gridDim.x;
     const uint32_t tid = threadIdx.x;
     /* Integer arithmetic only, so both ranks land on the same split. */
@@ -106,7 +127,21 @@ __global__ __launch_bounds__(THR) void ar_add_rmsnorm_kernel(
      * pitched one), so a row range is a 16B-word range. */
     const int wpr = (int)(n >> 3);                   // 16B words a row
     const int4* const a4 = (const int4*)a;
+    /* The coded form (wire 6): whole 32-chunk groups, a wave a group, the slot the launcher checked
+     * (r4d_ar_coded2_ok). Each row is whole groups (the launcher refuses n % 256), so a block's row
+     * range is a group range and the reader sums and decodes exactly what was pushed. */
+    const int gpr = (int)(wpr >> 5);                 // 32-chunk groups a row
+    const uint32_t lane = tid & (kWave - 1u), wv = tid >> 5;
+    constexpr uint32_t NWV = THR / kWave;
     unsigned int hck = 0u;
+#if defined(__HIP_DEVICE_COMPILE__)
+    if (coded) {
+        const R4dArc2 psc = r4d_arc2_at(ps, (int)((long)M * wpr));
+        for (int row = r0; row < r1; ++row)
+            for (int g = (int)wv; g < gpr; g += (int)NWV)
+                hck += r4d_arc2_put(psc, row * wpr + g * (int)kWave, a4[row * wpr + g * (int)kWave + (int)lane]);
+    } else
+#endif
     for (int k = r0 * wpr + (int)tid; k < r1 * wpr; k += (int)THR) {
         const int4 v = a4[k];
         ps[k] = v;
@@ -134,6 +169,15 @@ __global__ __launch_bounds__(THR) void ar_add_rmsnorm_kernel(
     __syncthreads();
     if (acq) __threadfence_system();
     r4d_archk_wait(my_flags, nbw, s_slot, (unsigned)b, sq, [&](unsigned int& h) {
+#if defined(__HIP_DEVICE_COMPILE__)
+        if (coded) {
+            const R4dArc2 msc = r4d_arc2_at(ms, (int)((long)M * wpr));
+            for (int row = r0; row < r1; ++row)
+                for (int g = (int)wv; g < gpr; g += (int)NWV)
+                    h += r4d_arc2_sum(msc, row * wpr + g * (int)kWave);
+            return;
+        }
+#endif
         const int4* const m4 = (const int4*)ms;
         for (int k = r0 * wpr + (int)tid; k < r1 * wpr; k += (int)THR)
             h += r4d_archk_u4(r4d_archk_keep(&m4[k], md), 4u * (unsigned)k);
@@ -143,7 +187,20 @@ __global__ __launch_bounds__(THR) void ar_add_rmsnorm_kernel(
 
     for (int row = r0; row < r1; ++row) {
         uint16_t* __restrict__ ar = a + (size_t)row * n;
-        const uint16_t* __restrict__ pr = P + (size_t)row * n;
+        /* Coded: decode this row's groups into shared first, so pass one reads the same bf16 words
+         * in the same thread order and the sum still folds in kR4dSumLanes' partition. */
+        const uint16_t* __restrict__ pr;
+#if defined(__HIP_DEVICE_COMPILE__)
+        if (coded) {
+            const R4dArc2 msc = r4d_arc2_at(ms, (int)((long)M * wpr));
+            for (int g = (int)wv; g < gpr; g += (int)NWV)
+                *reinterpret_cast<int4*>(arar_stage + (size_t)(g * (int)kWave + (int)lane) * 16u) =
+                    r4d_arc2_get(msc, row * wpr + g * (int)kWave);
+            __syncthreads();
+            pr = reinterpret_cast<const uint16_t*>(arar_stage);
+        } else
+#endif
+        pr = P + (size_t)row * n;
         uint16_t* __restrict__ xr = x + (size_t)row * x_ld;
         uint16_t* __restrict__ yr = y + (size_t)row * y_ld;
         /* MODE 0 norms the reduced message; MODE 1 norms the stream after the add. */
@@ -200,13 +257,20 @@ extern "C" int r4d_ar_add_rmsnorm(long peer_scratch, long my_scratch, long peer_
                                   long a, long x, long w, long y,
                                   int M, int n, float eps, float wadd, float mult, int w_f32,
                                   int x_ld, int y_ld, long stream, int nblocks, int nthreads,
-                                  int drain, int acq, int mode, long stage) {
+                                  int drain, int acq, int mode, long stage, long wire) {
     if (!a || !x || !w || !y) return -1;
     if (!peer_scratch || !my_scratch || !peer_flags || !my_flags || !seq_ctrs) return -1;
     if (M <= 0 || n <= 0) return -2;
     if (mode != 0 && mode != 1) return -3;
     /* n a multiple of 8: n bf16 is whole 16B words, which the push and the message need. */
     if (n % 8) return -5;
+    /* Wire 6 is the coded push: whole 256-value waves (every row whole 32-chunk groups), a P2P
+     * instance, and the coded image inside the slot. A caller that asks for it and does not fit gets
+     * the refusal, not a silent fall back to exact. */
+    const int coded = wire == 6;
+    if (wire != 0 && !coded) return -7;
+    if (coded && (n % 256 || !arar_coded_ok((long)M * (n >> 3), slot_stride16, stage)))
+        return -7;
     if (!x_ld) x_ld = n;
     if (!y_ld) y_ld = n;
 
@@ -220,12 +284,12 @@ extern "C" int r4d_ar_add_rmsnorm(long peer_scratch, long my_scratch, long peer_
 
 #define R4D_ARAR_K(wf, md, T)                                                                    \
     hipLaunchKernelGGL((ar_add_rmsnorm_kernel<wf, md, T, R4dUnchained>), dim3((uint32_t)nb),      \
-                       dim3(T), 0, (hipStream_t)stream, (uint16_t*)a, (uint16_t*)x,              \
+                       dim3(T), coded ? (size_t)n * 2u : 0u, (hipStream_t)stream, (uint16_t*)a, (uint16_t*)x,              \
                        (const void*)w, (uint16_t*)y, (int4*)peer_scratch, (const int4*)my_scratch, \
                        (unsigned int*)peer_flags, (unsigned int*)my_flags,                       \
                        (unsigned int*)seq_ctrs, M, (uint32_t)n, eps, wadd, mult,                 \
                        (uint32_t)x_ld, (uint32_t)y_ld, (int)slot_stride16, drain, acq,           \
-                       (unsigned)nbw, stage)
+                       (unsigned)nbw, stage, coded)
 #define R4D_ARAR_M(wf, md)                                                                       \
     do { if (thr == 1024)      R4D_ARAR_K(wf, md, 1024);                                         \
          else if (thr == 512)  R4D_ARAR_K(wf, md, 512);                                          \
