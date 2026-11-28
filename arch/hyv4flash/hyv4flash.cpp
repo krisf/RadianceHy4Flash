@@ -1247,6 +1247,17 @@ static int declare(RadBuilder* b, const RadModelMeta* meta, const RadBuildCtx* c
             for (const Junction* j : { &l.j_mid, &l.j_end })
                 for (rad_buf v : j->bufs())
                     if (v) rad_buf_concurrent(b, v);
+    /* --prefill-span-pass step is the routed pass this architecture already takes: Ffn::step issues
+     * moe.step over the whole batch (batch->n_tok), so a spanned step sorts its routes once and
+     * reads each expert's weight once for the step's rows. Say so where the flag is set, and say
+     * where the pipeline keeps the pass a piece, so an operator is not left looking for a switch
+     * that changes nothing here. */
+    if (ctx->span_pass_step)
+        rad_note(b, "--prefill-span-pass step: %s", m.pipe_on
+                        ? "a spanned step is pipelined here, so the routed pass stays one "
+                          "checkpoint interval a piece (the junction overlap beside it is worth "
+                          "more than the pass)"
+                        : "the routed block already takes the whole step in one pass");
     RAD_ARCH_TRY(m.t_final.declare(b, nm, T, "final_hidden", -1, RAD_BF16, E, m.final_hidden));
     m.unpack_hidden = decl_copy(b, T, E, RAD_BF16, m.final_hidden, m.final_hidden);
     HY4_NEED(m.unpack_hidden, "cast (last layer hidden)");

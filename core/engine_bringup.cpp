@@ -5540,8 +5540,14 @@ int Engine::start() {
      * each card keeps most of its experts, a copy saves little, and a pass with the prefetch's
      * stream beside it starts every ordered dispatch about 11 us later (Qwen3.8-Flash-Next at
      * --tp 2, one sequence: 724 ordered starts a pass, 20.5 ms a step against 10.1 without it; four
-     * and eight sequences 5 % and 1 % slower with it). */
-    if (!cfg_.deterministic && cfg_.tp == 1)
+     * and eight sequences 5 % and 1 % slower with it). RADIANCE_XP_TP2=1 opens it at two ranks
+     * anyway, for the re-timing docs/TP4.md asks for before T3 can price it: the same switch serves
+     * the measurement and has no other effect. */
+    const bool xp_tp2 = [] {
+        const char* e = std::getenv("RADIANCE_XP_TP2");
+        return e && *e && std::strcmp(e, "0") != 0;
+    }();
+    if (!cfg_.deterministic && (cfg_.tp == 1 || (cfg_.tp == 2 && xp_tp2)))
         for (auto& r : ranks_) {
             RAD_TRY(rad_dev_set(r->device));
             uint64_t lo[kXpMaxPools], hi[kXpMaxPools], st[kXpMaxPools];
