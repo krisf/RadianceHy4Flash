@@ -57,11 +57,30 @@
 #include "hyv4flash_indexer.h"
 #include "rad_spechub.h"
 
+#include <cstdlib>
 #include <functional>
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
+
+
+/* D-03 bisect knobs: RAD_D03_MODE0=0 or RAD_D03_MODE1=0 keeps that reduction's chain, so one binary
+ * isolates which twin (if either) moves a token. Default: both twins on. */
+static inline bool ar_twin_on(int mode) {
+    const char* k = mode == 0 ? "RAD_D03_MODE0" : "RAD_D03_MODE1";
+    const char* v = std::getenv(k);
+    return !(v && v[0] == '0' && v[1] == 0);
+}
+
+/* D-03's wire for a fused reduction twin: the coded push wherever the geometry allows it (whole
+ * 256-value waves), exact otherwise. RAD_AR_WIRE=0 pins exact, so one binary measures both. */
+static inline int ar_wire_choice(long long E) {
+    if (E % 256) return 0;
+    const char* w = std::getenv("RAD_AR_WIRE");
+    if (w && w[0] == '0' && w[1] == 0) return 0;
+    return 6;
+}
 
 namespace hyv4flash {
 
@@ -860,12 +879,12 @@ struct Dfly {
              * (notes/backlog/audit/C-plugin-graph.md F23). The taps read `o`, `y` and `x` between
              * them, so a tapped run keeps the chain, and a layer without a post-norm has no norm
              * to fuse (its pair stays). */
-            if (d.post && g.world == 2 && !taps_on() && rad_op_declared(b, "ar_add_rmsnorm")) {
+            if (d.post && g.world == 2 && !taps_on() && ar_twin_on(0) && rad_op_declared(b, "ar_add_rmsnorm")) {
                 d.op_ar_add = mk(b, "ar_add_rmsnorm",
                                  { RAD_RANGE("M", 1, Md), RAD_INT("n", E),
                                    RAD_INT("world_size", g.world), RAD_INT("mode", 0),
                                    RAD_F64("eps", s.eps), RAD_STR("dtype", "bf16"),
-                                   RAD_INT("wire", E % 256 ? 0 : 6) },
+                                   RAD_INT("wire", ar_wire_choice(E)) },
                                  { d.post_norm }, { o, x }, { o, x, y });
                 d.op_ar_add = optional_op(b, d.op_ar_add);
             }
@@ -965,14 +984,15 @@ struct Dfly {
             const bool last = (i + 1 == layers);
             const bool plain = last || (lay[(size_t)i + 1].op_attn_norm != 0 &&
                                         lay[(size_t)i + 1].op_attn_norm_q == 0);
-            if (g.world == 2 && !taps_on() && plain && rad_op_declared(b, "ar_add_rmsnorm")) {
+            if (g.world == 2 && !taps_on() && plain && ar_twin_on(1) &&
+                rad_op_declared(b, "ar_add_rmsnorm")) {
                 d.ar_next_w = last ? out_norm : lay[(size_t)i + 1].attn_norm;
                 d.ar_next_out = last ? z : xn;
                 d.op_ar_next = mk(b, "ar_add_rmsnorm",
                                   { RAD_RANGE("M", 1, Md), RAD_INT("n", E),
                                     RAD_INT("world_size", g.world), RAD_INT("mode", 1),
                                     RAD_F64("eps", s.eps), RAD_STR("dtype", "bf16"),
-                                    RAD_INT("wire", E % 256 ? 0 : 6) },
+                                    RAD_INT("wire", ar_wire_choice(E)) },
                                   { d.ar_next_w }, { y, x }, { y, x, d.ar_next_out });
                 d.op_ar_next = optional_op(b, d.op_ar_next);
             }

@@ -303,8 +303,13 @@ int build(ArInst* in, long long group, int rank, int world, long long max_numel,
      * writes' coded push, r4d_ar_oneshot_2rank_exact.hip): 16.125 bytes a 16-byte word, 1/128
      * more than the message. */
     if (world == 2 && dtype_code == 0 && !host) {
-        const long coded = align16(r4d_ar_coded2_bytes(in->slot_bytes / 16));
-        if (coded > in->slot_bytes) in->slot_bytes = coded;
+        /* RAD_AR_CODED_SLOT=0 keeps the message-sized slot: the bisect knob for whether the coded
+         * image's extra 1/128 moves the plan (and, through it, anything the drafter adapts on). */
+        const char* cs = getenv("RAD_AR_CODED_SLOT");
+        if (!(cs && cs[0] == '0' && cs[1] == 0)) {
+            const long coded = align16(r4d_ar_coded2_bytes(in->slot_bytes / 16));
+            if (coded > in->slot_bytes) in->slot_bytes = coded;
+        }
     }
     in->slot16 = in->slot_bytes / 16;
     if (world == 8) {
